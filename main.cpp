@@ -17,8 +17,8 @@ typedef void *(*thread_func)(void *);
 
 struct TCB {
     sigjmp_buf env;
-    void* arg;
     thread_func function;
+    void* arg;
     bool complete;
 };
 
@@ -97,11 +97,11 @@ void uthread_create(void *(start_routine)(void *), void* arg){
     tcb->arg = arg;
 
     // Allocate the stack.
-    char* stack = (char*)malloc(STACK_SIZE);
+    auto* stack = (char*)malloc(STACK_SIZE);
 
     // sp starts out at the top of the stack, pc at the wrapper function.
-    address_t sp = (address_t)stack + STACK_SIZE - 10 * sizeof(void*);
-    address_t pc = (address_t)wrapper;
+    auto sp = (address_t)stack + STACK_SIZE - 10 * sizeof(void*);
+    auto pc = (address_t)wrapper;
 
     // Modify the env_buf with the thread context.
     sigsetjmp(tcb->env,1);
@@ -142,7 +142,6 @@ void start(){
     siglongjmp(threads[current_thread_id].env,1);
 }
 
-
 ////////////////////////////////////
 //////////////////////////////////// Test Cases
 ////////////////////////////////////
@@ -163,7 +162,6 @@ void* uthread_yield_test_function(void* arg){
     }
     return 0;
 }
-
 
 void* uthread_self_test_function(void* arg){
     static int id = 0;
