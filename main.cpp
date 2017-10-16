@@ -19,12 +19,21 @@ struct TCB {
     sigjmp_buf env;
     void* arg;
     thread_func function;
+    bool complete;
 };
 
 TCB threads[1000];
 
+/**
+ * Total number of created threads.
+ */
 int num_threads = 0;
-char* saved_stack;
+
+
+/**
+ * TID of the current executing thread.
+ */
+int current_thread_id = -1;
 
 void uthread_yield();
 
@@ -71,10 +80,15 @@ void uthread_yield();
 #endif
 
 void wrapper(void* arg){
-    long index = *((long*)(&arg + 5));
-    TCB tcb = threads[index];
-    tcb.function(tcb.arg);
-    // TODO: Destroy this thread's resources now that it has completed execution.
+    // long index = *((long*)(&arg + 5));
+    long index = current_thread_id;
+    TCB* tcb = &threads[index];
+    tcb->function(tcb->arg);
+
+    // After this is set, thread will never execute again.
+    tcb->complete = true;
+    uthread_yield();
+    // TODO: Destroy this thread's resources now that it has completed execution
 }
 
 void uthread_create(void *(start_routine)(void *), void* arg){
@@ -107,21 +121,34 @@ void uthread_create(void *(start_routine)(void *), void* arg){
 }
 
 void uthread_yield(){
-    static int currentThread = 0;
 
-    int ret_val = sigsetjmp(threads[currentThread].env,1);
-    // printf("SWITCH: ret_val=%d\n", ret_val);
-    if (ret_val == 1) {
-        return;
-    }
+    // Save execution state.
+    int ret_val = sigsetjmp(threads[current_thread_id].env,1);
+    if (ret_val == 1) return;
 
-    currentThread = (currentThread + 1) % num_threads;
-    siglongjmp(threads[currentThread].env,1);
+    // Choose the next thread to execute.
+    int id = current_thread_id;
+    do {
+        id = (id + 1) % num_threads;
+        if(id == current_thread_id){
+            printf("infinite loop!\n");
+        }
+    } while (threads[id].complete);
+
+    // Execute that thread.
+    current_thread_id = id;
+    siglongjmp(threads[current_thread_id].env,1);
+}
+
+int uthread_self(){
+    return current_thread_id;
 }
 
 void start(){
-    siglongjmp(threads[0].env,1);
+    current_thread_id = 0;
+    siglongjmp(threads[current_thread_id].env,1);
 }
+
 
 ////////////////////////////////////
 //////////////////////////////////// Test Cases
@@ -142,6 +169,13 @@ void* uthread_yield_test_function(void* arg){
         printf("%d\n", i);
     }
     return 0;
+}
+
+void* uthread_self_test_function(void* arg){
+    static int id = 0;
+    assert(uthread_self()==id);
+    id++;
+    return nullptr;
 }
 
 void* f(void * arg){
@@ -180,7 +214,6 @@ void* g(void * arg){
 
 void test_uthread_create(){
     uthread_create(uthread_test_function, (void*)10l);
-    start();
 }
 
 // Create 10 threads, and check that they alternate between eachother
@@ -190,11 +223,20 @@ void test_thread_yield(){
     uthread_create(uthread_yield_test_function, 0);
     uthread_create(uthread_yield_test_function, 0);
     uthread_create(uthread_yield_test_function, 0);
-    start();
+}
+
+void test_thread_self(){
+    uthread_create(uthread_self_test_function, 0);
+}
+
+void* yield_wrapper(void* arg){
+    test_thread_yield();
 }
 
 int main(){
     // test_uthread_create();
-    test_thread_yield();
+    test_thread_self();
+    uthread_create(yield_wrapper, nullptr);
+    start();
     return 0;
 }
