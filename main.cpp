@@ -80,22 +80,19 @@ void uthread_yield();
 #endif
 
 void wrapper(void* arg){
-    // long index = *((long*)(&arg + 5));
-    long index = current_thread_id;
-    TCB* tcb = &threads[index];
+    TCB* tcb = &threads[current_thread_id];
     tcb->function(tcb->arg);
 
     // After this is set, thread will never execute again.
     tcb->complete = true;
     uthread_yield();
-    // TODO: Destroy this thread's resources now that it has completed execution
 }
 
 void uthread_create(void *(start_routine)(void *), void* arg){
 
     TCB* tcb = &threads[num_threads];
 
-    // Store the args in a global variable.
+    // Store the arg and function in a global variable.
     tcb->function = start_routine;
     tcb->arg = arg;
 
@@ -105,10 +102,6 @@ void uthread_create(void *(start_routine)(void *), void* arg){
     // sp starts out at the top of the stack, pc at the wrapper function.
     address_t sp = (address_t)stack + STACK_SIZE - 10 * sizeof(void*);
     address_t pc = (address_t)wrapper;
-
-    // Push a pointer to the function and arguments on the stack, above sp.
-    auto * thread_index_addr = (void*)(sp + sizeof(void*));
-    memcpy(thread_index_addr, &num_threads, sizeof(void*));
 
     // Modify the env_buf with the thread context.
     sigsetjmp(tcb->env,1);
@@ -156,7 +149,7 @@ void start(){
 
 void* uthread_test_function(void* arg){
     assert((long)arg == 10);
-    for(int i=0;true;i++){
+    for(int i=0;i<100;i++){
         printf("%d\n", i);
     }
     return 0;
@@ -170,6 +163,7 @@ void* uthread_yield_test_function(void* arg){
     }
     return 0;
 }
+
 
 void* uthread_self_test_function(void* arg){
     static int id = 0;
@@ -234,8 +228,8 @@ void* yield_wrapper(void* arg){
 }
 
 int main(){
-    test_uthread_create();
     test_thread_self();
+    test_uthread_create();
     uthread_create(yield_wrapper, nullptr);
     start();
     return 0;
