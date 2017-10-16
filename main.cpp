@@ -15,9 +15,13 @@
 
 typedef void *(*thread_func)(void *);
 
-sigjmp_buf threads[1000];
-void* thread_args[1000];
-thread_func thread_funcs[1000];
+struct TCB {
+    sigjmp_buf env;
+    void* arg;
+    thread_func function;
+};
+
+TCB threads[1000];
 
 int num_threads = 0;
 char* saved_stack;
@@ -67,17 +71,19 @@ void uthread_yield();
 #endif
 
 void wrapper(void* arg){
-    long i = *((long*)(&arg + 5));
-    printf("i: %ld\n", i);
-    thread_funcs[i](thread_args[i]);
+    long index = *((long*)(&arg + 5));
+    TCB tcb = threads[index];
+    tcb.function(tcb.arg);
     // TODO: Destroy this thread's resources now that it has completed execution.
 }
 
 void uthread_create(void *(start_routine)(void *), void* arg){
 
+    TCB* tcb = &threads[num_threads];
+
     // Store the args in a global variable.
-    thread_funcs[num_threads] = start_routine;
-    thread_args[num_threads] = arg;
+    tcb->function = start_routine;
+    tcb->arg = arg;
 
     // Allocate the stack.
     char* stack = (char*)malloc(STACK_SIZE);
@@ -91,10 +97,10 @@ void uthread_create(void *(start_routine)(void *), void* arg){
     memcpy(thread_index_addr, &num_threads, sizeof(void*));
 
     // Modify the env_buf with the thread context.
-    sigsetjmp(threads[num_threads],1);
-    (threads[num_threads]->__jmpbuf)[JB_SP] = translate_address(sp);
-    (threads[num_threads]->__jmpbuf)[JB_PC] = translate_address(pc);
-    sigemptyset(&threads[num_threads]->__saved_mask);
+    sigsetjmp(tcb->env,1);
+    (tcb->env->__jmpbuf)[JB_SP] = translate_address(sp);
+    (tcb->env->__jmpbuf)[JB_PC] = translate_address(pc);
+    sigemptyset(&tcb->env->__saved_mask);
 
     // We now have one more thread!
     num_threads++;
@@ -103,18 +109,18 @@ void uthread_create(void *(start_routine)(void *), void* arg){
 void uthread_yield(){
     static int currentThread = 0;
 
-    int ret_val = sigsetjmp(threads[currentThread],1);
+    int ret_val = sigsetjmp(threads[currentThread].env,1);
     // printf("SWITCH: ret_val=%d\n", ret_val);
     if (ret_val == 1) {
         return;
     }
 
     currentThread = (currentThread + 1) % num_threads;
-    siglongjmp(threads[currentThread],1);
+    siglongjmp(threads[currentThread].env,1);
 }
 
 void start(){
-    siglongjmp(threads[0],1);
+    siglongjmp(threads[0].env,1);
 }
 
 ////////////////////////////////////
