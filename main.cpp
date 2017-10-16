@@ -1,6 +1,7 @@
 
 // From http://www-users.cselabs.umn.edu/classes/Fall-2017/csci5103/PROJECT/PROJECT1/sigjmp-demo.c.
 
+#include <assert.h>
 #include <stdio.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -116,10 +117,20 @@ void start(){
     siglongjmp(threads[0],1);
 }
 
+////////////////////////////////////
 //////////////////////////////////// Test Cases
+////////////////////////////////////
+
+void* uthread_test_function(void* arg){
+    assert((long)arg == 10);
+    while(1) {
+    }
+    return 0;
+}
 
 void* f(void * arg){
-    printf("argument: %ld\n", *((long*)(&arg+5)));
+    assert((long)arg == 10);
+    printf("argument: %ld\n", (long)arg);
     int i=0;
     while(1) {
         ++i;
@@ -152,8 +163,7 @@ void* g(void * arg){
 }
 
 void test_uthread_create(){
-    printf("creating f\n");
-    uthread_create(f, (void*)10l);
+    uthread_create(uthread_test_function, (void*)10l);
     start();
 }
 
