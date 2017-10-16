@@ -22,7 +22,7 @@ thread_func thread_funcs[1000];
 int num_threads = 0;
 char* saved_stack;
 
-void thread_yield();
+void uthread_yield();
 
 #ifdef __x86_64__
 
@@ -100,11 +100,11 @@ void uthread_create(void *(start_routine)(void *), void* arg){
     num_threads++;
 }
 
-void thread_yield(){
+void uthread_yield(){
     static int currentThread = 0;
 
     int ret_val = sigsetjmp(threads[currentThread],1);
-    printf("SWITCH: ret_val=%d\n", ret_val);
+    // printf("SWITCH: ret_val=%d\n", ret_val);
     if (ret_val == 1) {
         return;
     }
@@ -123,7 +123,17 @@ void start(){
 
 void* uthread_test_function(void* arg){
     assert((long)arg == 10);
-    while(1) {
+    for(int i=0;true;i++){
+        printf("%d\n", i);
+    }
+    return 0;
+}
+void* uthread_yield_test_function(void* arg){
+    for(int i=0;true;i++){
+        if(i % 500000 == 0){
+            uthread_yield();
+        }
+        printf("%d\n", i);
     }
     return 0;
 }
@@ -139,7 +149,7 @@ void* f(void * arg){
         }
         if (i % 3 == 0) {
             printf("f: switching\n");
-            thread_yield();
+            uthread_yield();
         }
         usleep(SECOND);
     }
@@ -155,7 +165,7 @@ void* g(void * arg){
         printf("in g (%d)\n",i);
         if (i % 5 == 0) {
             printf("g: switching\n");
-            thread_yield();
+            uthread_yield();
         }
         usleep(SECOND);
     }
@@ -167,7 +177,18 @@ void test_uthread_create(){
     start();
 }
 
+// Create 10 threads, and check that they alternate between eachother
+void test_thread_yield(){
+    uthread_create(uthread_yield_test_function, 0);
+    uthread_create(uthread_yield_test_function, 0);
+    uthread_create(uthread_yield_test_function, 0);
+    uthread_create(uthread_yield_test_function, 0);
+    uthread_create(uthread_yield_test_function, 0);
+    start();
+}
+
 int main(){
-    test_uthread_create();
+    // test_uthread_create();
+    test_thread_yield();
     return 0;
 }
