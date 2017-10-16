@@ -65,34 +65,37 @@ void thread_yield();
 
 #endif
 
-// What if we get arg from a global array (TCB) instead of crazy shiet?
 void wrapper(void* arg){
     long i = *((long*)(&arg + 5));
     printf("i: %ld\n", i);
     thread_funcs[i](thread_args[i]);
-    // Destroy this thread's resources now that it has completed execution.
+    // TODO: Destroy this thread's resources now that it has completed execution.
 }
 
 void uthread_create(void *(start_routine)(void *), void* arg){
 
+    // Store the args in a global variable.
     thread_funcs[num_threads] = start_routine;
     thread_args[num_threads] = arg;
 
+    // Allocate the stack.
     char* stack = (char*)malloc(STACK_SIZE);
-    saved_stack = stack;
 
-
+    // sp starts out at the top of the stack, pc at the wrapper function.
     address_t sp = (address_t)stack + STACK_SIZE - 10 * sizeof(void*);
     address_t pc = (address_t)wrapper;
 
-    auto * addr2 = (void*)(sp + sizeof(void*));
-    memcpy(addr2, &num_threads, sizeof(void*));
+    // Push a pointer to the function and arguments on the stack, above sp.
+    auto * thread_index_addr = (void*)(sp + sizeof(void*));
+    memcpy(thread_index_addr, &num_threads, sizeof(void*));
 
+    // Modify the env_buf with the thread context.
     sigsetjmp(threads[num_threads],1);
     (threads[num_threads]->__jmpbuf)[JB_SP] = translate_address(sp);
     (threads[num_threads]->__jmpbuf)[JB_PC] = translate_address(pc);
     sigemptyset(&threads[num_threads]->__saved_mask);
 
+    // We now have one more thread!
     num_threads++;
 }
 
@@ -113,7 +116,8 @@ void start(){
     siglongjmp(threads[0],1);
 }
 
-//////////////////////////////////// Sample Invocation
+//////////////////////////////////// Test Cases
+
 void* f(void * arg){
     printf("argument: %ld\n", *((long*)(&arg+5)));
     int i=0;
@@ -147,55 +151,13 @@ void* g(void * arg){
     return 0;
 }
 
-int main(){
-        printf("creating f\n");
+void test_uthread_create(){
+    printf("creating f\n");
     uthread_create(f, (void*)10l);
-    //    printf("creating g\n");
-    //uthread_create(g, (void*)20l);
     start();
+}
+
+int main(){
+    test_uthread_create();
     return 0;
 }
-/////////////////////////////////////
-
-
-
-
-
-// #include <stdio.h>
-// #include "threads.h"
-// #include "scheduler.h"
-
-// /*
-//  * This file implements the API that is required for the project, starting with uthread_create.
-//  * TODO: all other methods.
-//  */
-
-
-// // TODO: prevent the thread from dominating the execution flow, by setting a timer to stop execution.
-// int uthread_create(void *(start_routine)(void *), void* arg){
-//     start_routine(arg);
-// }
-
-// // The way this has got to work is by pushing this threads info to the global TCB,
-// // the thread running the next start_routine on the list of functions, and this start_routine returning.
-// int uthread_yield(){
-//     // Implementation: jump to the scheduler, which then jumps back to us.
-//     if(setjmp(theThread.env)){
-//         return 0;
-//     }
-//     printf("theThread.env jump set\n");
-//     longjmp(scheduler_stack, 1);
-
-//     // Unreachable code.
-//     return 0;
-// }
-
-// int initalize_scheduler(){
-//     if(setjmp(scheduler_stack)){
-//         printf("Jumped back to the scheduler!\n");
-//         for(int i=0;i<1000000;i++)
-//             ;
-//         return 0;
-//     }
-//     return 0;
-// }
