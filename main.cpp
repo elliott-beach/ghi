@@ -218,15 +218,15 @@ void test_uthread_create(){
 
 // Create 10 threads, and check that they alternate between eachother
 void test_thread_yield(){
-    uthread_create(uthread_yield_test_function, 0);
-    uthread_create(uthread_yield_test_function, 0);
-    uthread_create(uthread_yield_test_function, 0);
-    uthread_create(uthread_yield_test_function, 0);
-    uthread_create(uthread_yield_test_function, 0);
+    uthread_create(uthread_yield_test_function, nullptr);
+    uthread_create(uthread_yield_test_function, nullptr);
+    uthread_create(uthread_yield_test_function, nullptr);
+    uthread_create(uthread_yield_test_function, nullptr);
+    uthread_create(uthread_yield_test_function, nullptr);
 }
 
 void test_thread_self(){
-    uthread_create(uthread_self_test_function, 0);
+    uthread_create(uthread_self_test_function, nullptr);
 }
 
 void* yield_wrapper(void* arg){
@@ -234,7 +234,7 @@ void* yield_wrapper(void* arg){
 }
 
 int main(){
-    // test_uthread_create();
+    test_uthread_create();
     test_thread_self();
     uthread_create(yield_wrapper, nullptr);
     start();
