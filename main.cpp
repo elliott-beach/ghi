@@ -1,4 +1,3 @@
-
 // From http://www-users.cselabs.umn.edu/classes/Fall-2017/csci5103/PROJECT/PROJECT1/sigjmp-demo.c.
 
 #include <assert.h>
