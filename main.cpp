@@ -21,6 +21,9 @@ struct TCB {
     bool complete;
 };
 
+/**
+ * Global thread state.
+ */
 TCB threads[1000];
 
 /**
@@ -36,6 +39,8 @@ int current_thread_id = -1;
 
 void uthread_yield();
 
+/* A translation is required when using an address of a variable.
+    Use this as a black box in your code. */
 #ifdef __x86_64__
 
     /* 64 bit Intel arch */
@@ -44,8 +49,6 @@ void uthread_yield();
     #define JB_SP 6
     #define JB_PC 7
 
-    /* A translation is required when using an address of a variable.
-       Use this as a black box in your code. */
     address_t translate_address(address_t addr)
     {
         address_t ret;
@@ -65,8 +68,6 @@ void uthread_yield();
     #define JB_SP 4
     #define JB_PC 5
 
-    /* A translation is required when using an address of a variable.
-       Use this as a black box in your code. */
     address_t translate_address(address_t addr){
         address_t ret;
         asm volatile("xor    %%gs:0x18,%0\n"
@@ -78,7 +79,12 @@ void uthread_yield();
 
 #endif
 
-void wrapper(void* arg){
+/**
+ * thread_wrapper is the function initially called when a thread starts.
+ * Calls the thread function with its argument, marks the thread as complete, and yields.
+ * @param arg not used
+ */
+void thread_wrapper(void *arg){
     TCB* tcb = &threads[current_thread_id];
     tcb->function(tcb->arg);
 
@@ -100,7 +106,7 @@ void uthread_create(void *(start_routine)(void *), void* arg){
 
     // sp starts out at the top of the stack, pc at the wrapper function.
     auto sp = (address_t)stack + STACK_SIZE - 10 * sizeof(void*);
-    auto pc = (address_t)wrapper;
+    auto pc = (address_t)thread_wrapper;
 
     // Modify the env_buf with the thread context.
     sigsetjmp(tcb->env,1);
