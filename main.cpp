@@ -18,6 +18,8 @@
      sigjmp_buf env;
      thread_func function;
      void* arg;
+     void* result;
+     int waiting_for_tid = -1;
      bool complete;
  };
  
@@ -86,14 +88,20 @@
   */
  void thread_wrapper(void *arg){
      TCB* tcb = &threads[current_thread_id];
-     tcb->function(tcb->arg);
- 
+     tcb->result = tcb->function(tcb->arg);
+
      // After this is set, thread will never execute again.
      tcb->complete = true;
      uthread_yield();
  }
- 
- void uthread_create(void *(start_routine)(void *), void* arg){
+
+ /*
+  * Create a new uthread.
+  * @param start_routine - The function that should be executed in the thread.
+  * @param arg - An argument to pass to the function.
+  * @return The tid of the created thread.
+  */
+ int uthread_create(void *(start_routine)(void *), void* arg){
  
      TCB* tcb = &threads[num_threads];
  
@@ -115,7 +123,17 @@
      sigemptyset(&tcb->env->__saved_mask);
  
      // We now have one more thread!
-     num_threads++;
+     return num_threads++;
+ }
+
+ /*
+ * Returns true if thread with given tid is ready, else false
+ * @param tid - The tid of the thread.
+ */
+ bool is_thread_ready(int tid){
+     TCB &tcb = threads[tid];
+     int w_tid = tcb.waiting_for_tid;
+     return !tcb.complete && (w_tid == -1 || threads[w_tid].complete);
  }
  
  void uthread_yield(){
@@ -129,27 +147,40 @@
      do {
          id = (id + 1) % num_threads;
          if(id == current_thread_id){
-             printf("infinite loop!\n");
+             printf("All threads executed.\n");
+             exit(0);
          }
-     } while (threads[id].complete);
+     } while (!is_thread_ready(id));
  
      // Execute that thread.
      current_thread_id = id;
      siglongjmp(threads[current_thread_id].env,1);
  }
  
+
+ 
  int uthread_self(){
      return current_thread_id;
  }
- 
+
+ int uthread_join(int tid, void **retval){
+     threads[current_thread_id].waiting_for_tid = tid;
+     uthread_yield();
+     *retval = threads[tid].result;
+     return 0;
+ }
+
+ /**
+  * Start the threading library.
+  */
  void start(){
      current_thread_id = 0;
      siglongjmp(threads[current_thread_id].env,1);
  }
  
  ////////////////////////////////////
- //////////////////////////////////// Test Cases
- ////////////////////////////////////
+ /*  Unit Tests and Fixtures       */
+ ///////////////////////////////////
  
  void* uthread_test_function(void* arg){
      assert((long)arg == 10);
@@ -159,8 +190,9 @@
      return 0;
  }
  void* uthread_yield_test_function(void* arg){
-     for(int i=0;true;i++){
-         if(i % 500000 == 0){
+     int limit = 100;
+     for(int i=0;i<2*limit;i++){
+         if(i % limit == 0){
              uthread_yield();
          }
          printf("%d\n", i);
@@ -173,6 +205,14 @@
      assert(uthread_self()==id);
      id++;
      return nullptr;
+ }
+
+ void* return_10_fixture(void* arg){
+    return (void*)10l;
+ }
+
+ void* uthread_join_test(void* arg){
+     uthread_create(return_10_fixture, nullptr);
  }
  
  void* f(void * arg){
@@ -225,6 +265,17 @@
  void test_thread_self(){
      uthread_create(uthread_self_test_function, nullptr);
  }
+
+ void* uthread_join_test_function(void* arg){
+     void* retval;
+     uthread_join(uthread_create(return_10_fixture, nullptr), &retval);
+     assert((long)retval == 10l);
+     return nullptr;
+ }
+
+ void test_uthread_join(){
+     uthread_create(uthread_join_test_function, nullptr);
+ }
  
  void* yield_wrapper(void* arg){
      test_thread_yield();
@@ -233,6 +284,7 @@
  int main(){
      test_thread_self();
      test_uthread_create();
+     test_uthread_join();
      uthread_create(yield_wrapper, nullptr);
      start();
      return 0;
