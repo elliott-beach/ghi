@@ -19,6 +19,7 @@ struct TCB {
     thread_func function;
     void* arg;
     bool complete;
+    bool status;
 };
 
 /**
@@ -102,18 +103,38 @@ void uthread_create(void *(start_routine)(void *), void* arg){
     tcb->arg = arg;
 
     // Allocate the stack.
-    auto* stack = (char*)malloc(STACK_SIZE);
+    auto* stack = (char *)malloc(STACK_SIZE);
 
     // sp starts out at the top of the stack, pc at the wrapper function.
     auto sp = (address_t)stack + STACK_SIZE - 10 * sizeof(void*);
     auto pc = (address_t)thread_wrapper;
+
+    // Place the argument and the function pointer on the stack
+
+    address_t *stack_p = (address_t *)sp;
+
+    *stack_p = (address_t)arg;
+    sp--;
+    stack_p = (address_t *)sp;
+
+    *stack_p = (address_t)start_routine;
+    sp--;
+    stack_p = (address_t *)sp;
+
+    // Place the wrapper function on the stack so when the scheduler switches
+    // to this thread, the wrapper function is popped off the stack
+    *stack_p = (address_t)thread_wrapper;
+    sp--;
 
     // Modify the env_buf with the thread context.
     sigsetjmp(tcb->env,1);
     (tcb->env->__jmpbuf)[JB_SP] = translate_address(sp);
     (tcb->env->__jmpbuf)[JB_PC] = translate_address(pc);
     sigemptyset(&tcb->env->__saved_mask);
-
+ 
+    tcb->status = true;  // ready
+    // Add thread to ready list here
+    
     // We now have one more thread!
     num_threads++;
 }
@@ -175,6 +196,7 @@ void* uthread_self_test_function(void* arg){
     return nullptr;
 }
 
+
 void* f(void * arg){
     assert((long)arg == 10);
     printf("argument: %ld\n", (long)arg);
@@ -208,6 +230,7 @@ void* g(void * arg){
     }
     return 0;
 }
+
 
 void test_uthread_create(){
     uthread_create(uthread_test_function, (void*)10l);
