@@ -124,7 +124,7 @@ void uthread_create(void *(start_routine)(void *), void* arg){
     sigsetjmp(tcb->env,1);
     (tcb->env->__jmpbuf)[JB_SP] = translate_address(sp);
     (tcb->env->__jmpbuf)[JB_PC] = translate_address(pc);
-    sigemptyset(&tcb->env->__saved_mask);    
+    sigemptyset(&tcb->env->__saved_mask);
 
     
     tcb->status = true;  // ready
