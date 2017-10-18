@@ -19,6 +19,7 @@ struct TCB {
     thread_func function;
     void* arg;
     bool complete;
+    bool status;
 };
 
 /**
@@ -108,12 +109,27 @@ void uthread_create(void *(start_routine)(void *), void* arg){
     auto sp = (address_t)stack + STACK_SIZE - 10 * sizeof(void*);
     auto pc = (address_t)thread_wrapper;
 
+    // Place the argument and the function pointer on the stack
+    *sp = (address_t)arg;
+    sp--;
+    *sp = (address_t)start_routine;
+    sp--;
+
+    // Place the wrapper function on the stack so when the scheduler switches
+    // to this thread, the wrapper function is popped off the stack
+    *sp = (address_t)thread_wrapper;
+    sp--;
+
     // Modify the env_buf with the thread context.
     sigsetjmp(tcb->env,1);
     (tcb->env->__jmpbuf)[JB_SP] = translate_address(sp);
     (tcb->env->__jmpbuf)[JB_PC] = translate_address(pc);
-    sigemptyset(&tcb->env->__saved_mask);
+    sigemptyset(&tcb->env->__saved_mask);    
 
+    
+    tcb->status = true;  // ready
+    // Add thread to ready list here
+    
     // We now have one more thread!
     num_threads++;
 }
