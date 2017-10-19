@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <vector>
 
 #define SECOND 1000000
 #define STACK_SIZE 4096
@@ -18,8 +19,9 @@ struct TCB {
     sigjmp_buf env;
     thread_func function;
     void* arg;
+    void* result;
+    int waiting_for_tid = -1;
     bool complete;
-    bool status;
 };
 
 /**
@@ -32,6 +34,11 @@ TCB threads[1000];
  */
 int num_threads = 0;
 
+/**
+ * Ready List, waiting list
+ */
+std::vector<int> ready_list;
+std::vector<int> waiting_list;
 
 /**
  * TID of the current executing thread.
@@ -81,20 +88,62 @@ void uthread_yield();
 #endif
 
 /**
+ * Completes a thread's execution. Removes all the threads that were
+ * waiting on calling thread from the waiting list and adds to the
+ * ready list.
+ */
+void thread_complete(){
+    int ret_val = sigsetjmp(threads[current_thread_id].env,1);
+    if (ret_val == 1) return;
+
+    // After this is set, thread will never execute again.
+    TCB* tcb = &threads[current_thread_id];
+    tcb->complete = true;
+
+    // Search for threads waiting on this thread - set them to ready
+    std::vector<int>::iterator it = waiting_list.begin();
+    std::vector<int>::iterator end = waiting_list.end();
+    while(it != end) {
+	int id = *it;
+	if(threads[id].waiting_for_tid = current_thread_id) {
+	    threads[id].waiting_for_tid = -1;
+	    waiting_list.erase(it);
+	    ready_list.push_back(id);
+	}
+	++it;
+    }
+
+    if(ready_list.empty()) {
+	printf("All threads executed.\n");
+	exit(0);
+    }
+
+    // Choose the first thread on the ready list
+    current_thread_id = ready_list.front();
+    ready_list.erase(ready_list.begin());
+
+    siglongjmp(threads[current_thread_id].env,1);
+}
+
+/**
  * thread_wrapper is the function initially called when a thread starts.
  * Calls the thread function with its argument, marks the thread as complete, and yields.
  * @param arg not used
  */
 void thread_wrapper(void *arg){
     TCB* tcb = &threads[current_thread_id];
-    tcb->function(tcb->arg);
+    tcb->result = tcb->function(tcb->arg);
 
-    // After this is set, thread will never execute again.
-    tcb->complete = true;
-    uthread_yield();
+    thread_complete();
 }
 
-void uthread_create(void *(start_routine)(void *), void* arg){
+/*
+ * Create a new uthread.
+ * @param start_routine - The function that should be executed in the thread.
+ * @param arg - An argument to pass to the function.
+ * @return The tid of the created thread.
+ */
+int uthread_create(void *(start_routine)(void *), void* arg){
 
     TCB* tcb = &threads[num_threads];
 
@@ -103,40 +152,33 @@ void uthread_create(void *(start_routine)(void *), void* arg){
     tcb->arg = arg;
 
     // Allocate the stack.
-    auto* stack = (char *)malloc(STACK_SIZE);
+    auto* stack = (char*)malloc(STACK_SIZE);
 
     // sp starts out at the top of the stack, pc at the wrapper function.
     auto sp = (address_t)stack + STACK_SIZE - 10 * sizeof(void*);
     auto pc = (address_t)thread_wrapper;
-
-    // Place the argument and the function pointer on the stack
-
-    address_t *stack_p = (address_t *)sp;
-
-    *stack_p = (address_t)arg;
-    sp--;
-    stack_p = (address_t *)sp;
-
-    *stack_p = (address_t)start_routine;
-    sp--;
-    stack_p = (address_t *)sp;
-
-    // Place the wrapper function on the stack so when the scheduler switches
-    // to this thread, the wrapper function is popped off the stack
-    *stack_p = (address_t)thread_wrapper;
-    sp--;
 
     // Modify the env_buf with the thread context.
     sigsetjmp(tcb->env,1);
     (tcb->env->__jmpbuf)[JB_SP] = translate_address(sp);
     (tcb->env->__jmpbuf)[JB_PC] = translate_address(pc);
     sigemptyset(&tcb->env->__saved_mask);
- 
-    tcb->status = true;  // ready
-    // Add thread to ready list here
+
+    // Add thread to ready list
+    ready_list.push_back(num_threads);
     
     // We now have one more thread!
-    num_threads++;
+    return num_threads++;
+}
+
+/*
+* Returns true if thread with given tid is ready, else false
+* @param tid - The tid of the thread.
+*/
+bool is_thread_ready(int tid){
+    TCB &tcb = threads[tid];
+    int w_tid = tcb.waiting_for_tid;
+    return !tcb.complete && (w_tid == -1 || threads[w_tid].complete);
 }
 
 void uthread_yield(){
@@ -146,16 +188,36 @@ void uthread_yield(){
     if (ret_val == 1) return;
 
     // Choose the next thread to execute.
-    int id = current_thread_id;
-    do {
-        id = (id + 1) % num_threads;
-        if(id == current_thread_id){
-            printf("infinite loop!\n");
-        }
-    } while (threads[id].complete);
+    ready_list.push_back(current_thread_id);
 
-    // Execute that thread.
-    current_thread_id = id;
+    current_thread_id = ready_list.front();
+    ready_list.erase(ready_list.begin());
+
+    siglongjmp(threads[current_thread_id].env,1);
+}
+
+/**
+ * Add calling thread to the waiting list to block. Switch to a
+ * different thread.
+ */
+void thread_switch(){
+
+    int ret_val = sigsetjmp(threads[current_thread_id].env,1);
+    if (ret_val == 1) return;
+
+    // Place calling thread on waiting list
+    waiting_list.push_back(current_thread_id);
+
+    // Deadlock
+    if(ready_list.empty()) {
+	printf("Deadlock\n");
+	exit(0);
+    }
+
+    // Take the top thread off the ready list
+    current_thread_id = ready_list.front();
+    ready_list.erase(ready_list.begin());
+
     siglongjmp(threads[current_thread_id].env,1);
 }
 
@@ -163,14 +225,25 @@ int uthread_self(){
     return current_thread_id;
 }
 
+int uthread_join(int tid, void **retval){
+    threads[current_thread_id].waiting_for_tid = tid;
+    thread_switch();
+    *retval = threads[tid].result;
+    return 0;
+}
+
+/**
+ * Start the threading library.
+ */
 void start(){
-    current_thread_id = 0;
+    current_thread_id = ready_list.front();
+    ready_list.erase(ready_list.begin());
     siglongjmp(threads[current_thread_id].env,1);
 }
 
 ////////////////////////////////////
-//////////////////////////////////// Test Cases
-////////////////////////////////////
+/*  Unit Tests and Fixtures       */
+///////////////////////////////////
 
 void* uthread_test_function(void* arg){
     assert((long)arg == 10);
@@ -180,8 +253,9 @@ void* uthread_test_function(void* arg){
     return 0;
 }
 void* uthread_yield_test_function(void* arg){
-    for(int i=0;true;i++){
-        if(i % 500000 == 0){
+    int limit = 100;
+    for(int i=0;i<2*limit;i++){
+        if(i % limit == 0){
             uthread_yield();
         }
         printf("%d\n", i);
@@ -196,6 +270,13 @@ void* uthread_self_test_function(void* arg){
     return nullptr;
 }
 
+void* return_10_fixture(void* arg){
+   return (void*)10l;
+}
+
+void* uthread_join_test(void* arg){
+    uthread_create(return_10_fixture, nullptr);
+}
 
 void* f(void * arg){
     assert((long)arg == 10);
@@ -231,7 +312,6 @@ void* g(void * arg){
     return 0;
 }
 
-
 void test_uthread_create(){
     uthread_create(uthread_test_function, (void*)10l);
 }
@@ -249,6 +329,17 @@ void test_thread_self(){
     uthread_create(uthread_self_test_function, nullptr);
 }
 
+void* uthread_join_test_function(void* arg){
+    void* retval;
+    uthread_join(uthread_create(return_10_fixture, nullptr), &retval);
+    assert((long)retval == 10l);
+    return nullptr;
+}
+
+void test_uthread_join(){
+    uthread_create(uthread_join_test_function, nullptr);
+}
+
 void* yield_wrapper(void* arg){
     test_thread_yield();
 }
@@ -256,6 +347,7 @@ void* yield_wrapper(void* arg){
 int main(){
     test_thread_self();
     test_uthread_create();
+    test_uthread_join();
     uthread_create(yield_wrapper, nullptr);
     start();
     return 0;
