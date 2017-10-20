@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <vector>
+#include <algorithm>
 
 #define SECOND 1000000
 #define STACK_SIZE 4096
@@ -35,10 +36,11 @@ TCB threads[1000];
 int num_threads = 0;
 
 /**
- * Ready List, waiting list
+ * Ready List, waiting, suspended list
  */
 std::vector<int> ready_list;
 std::vector<int> waiting_list;
+std::vector<int> suspended_list;
 
 /**
  * TID of the current executing thread.
@@ -232,6 +234,32 @@ int uthread_join(int tid, void **retval){
     return 0;
 }
 
+int uthread_suspend(int tid) {
+    if(threads[tid].complete) {
+	printf("Thread %d cannot be suspended. It is already complete\n", tid);
+	return -1;
+    }
+
+    if(tid == current_thread_id) {
+	suspended_list.push_back(current_thread_id);
+	thread_switch();
+	return 0;
+    }
+
+    std::vector<int>::iterator it;
+    if((it = find(ready_list.begin(), ready_list.end(), tid)) != ready_list.end()) {
+	ready_list.erase(it);
+	suspended_list.push_back(tid);
+    } else if((it = find(waiting_list.begin(), waiting_list.end(), tid)) != waiting_list.end()) {
+	waiting_list.erase(it);
+	suspended_list.push_back(tid);
+    } else {
+	printf("error\n");
+	return -1;
+    }
+
+    return 0;
+}
 /**
  * Start the threading library.
  */
@@ -344,11 +372,30 @@ void* yield_wrapper(void* arg){
     test_thread_yield();
 }
 
+void* do_something(void* arg){
+    printf("FRONT\n");
+    uthread_yield();
+    printf("END\n");  // This should not print
+}
+
+void* uthread_suspend_test_function(void* arg) {
+    int tid = uthread_create(do_something, nullptr);
+    uthread_yield();
+    uthread_suspend(tid);
+    uthread_yield();
+    printf("MIDDLE\n");
+}
+
+void test_thread_suspend() {
+    uthread_create(uthread_suspend_test_function, nullptr);
+}
+
 int main(){
     test_thread_self();
     test_uthread_create();
     test_uthread_join();
     uthread_create(yield_wrapper, nullptr);
+    test_thread_suspend();
     start();
     return 0;
 }
