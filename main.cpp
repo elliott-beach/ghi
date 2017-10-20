@@ -234,8 +234,14 @@ int uthread_join(int tid, void **retval){
     return 0;
 }
 
+/**
+ * Resume a suspended thread.
+ * @param tid - The tid needed to be resumed
+ */
 int uthread_resume(int tid) {
     std::vector<int>::iterator it;
+
+    // Verify that tid is currently suspended
     if((it = find(suspended_list.begin(), suspended_list.end(), tid)) != suspended_list.end()) {
 	suspended_list.erase(it);
 	if(threads[tid].waiting_for_tid == -1)
@@ -244,16 +250,24 @@ int uthread_resume(int tid) {
 	    waiting_list.push_back(tid);
 	return 0;
     }
+
+    // If it wasn't suspended return an error
     printf("thread_resume: Thread %d was not suspended\n", tid);
     return -1;
 }
 
+/**
+ * Suspend a thread by adding it to the suspended list
+ * @param - The tid of the thread needed to be suspended
+ */
 int uthread_suspend(int tid) {
+    // If tid is complete it can't be suspended
     if(threads[tid].complete) {
 	printf("thread_suspend: Thread %d cannot be suspended. It is already complete\n", tid);
 	return -1;
     }
 
+    // If somehow a thread tries to suspend itself
     if(tid == current_thread_id) {
 	suspended_list.push_back(current_thread_id);
 	thread_switch();
@@ -261,6 +275,8 @@ int uthread_suspend(int tid) {
     }
 
     std::vector<int>::iterator it;
+
+    // Check if the tid trying to be suspended is in the ready list or the waiting list
     if((it = find(ready_list.begin(), ready_list.end(), tid)) != ready_list.end()) {
 	ready_list.erase(it);
 	suspended_list.push_back(tid);
