@@ -234,9 +234,23 @@ int uthread_join(int tid, void **retval){
     return 0;
 }
 
+int uthread_resume(int tid) {
+    std::vector<int>::iterator it;
+    if((it = find(suspended_list.begin(), suspended_list.end(), tid)) != suspended_list.end()) {
+	suspended_list.erase(it);
+	if(threads[tid].waiting_for_tid == -1)
+	    ready_list.push_back(tid);
+	else
+	    waiting_list.push_back(tid);
+	return 0;
+    }
+    printf("thread_resume: Thread %d was not suspended\n", tid);
+    return -1;
+}
+
 int uthread_suspend(int tid) {
     if(threads[tid].complete) {
-	printf("Thread %d cannot be suspended. It is already complete\n", tid);
+	printf("thread_suspend: Thread %d cannot be suspended. It is already complete\n", tid);
 	return -1;
     }
 
@@ -254,7 +268,6 @@ int uthread_suspend(int tid) {
 	waiting_list.erase(it);
 	suspended_list.push_back(tid);
     } else {
-	printf("error\n");
 	return -1;
     }
 
@@ -375,7 +388,7 @@ void* yield_wrapper(void* arg){
 void* do_something(void* arg){
     printf("FRONT\n");
     uthread_yield();
-    printf("END\n");  // This should not print
+    printf("END\n");  // This should print last
 }
 
 void* uthread_suspend_test_function(void* arg) {
@@ -384,9 +397,10 @@ void* uthread_suspend_test_function(void* arg) {
     uthread_suspend(tid);
     uthread_yield();
     printf("MIDDLE\n");
+    uthread_resume(tid);
 }
 
-void test_thread_suspend() {
+void test_thread_suspend_resume() {
     uthread_create(uthread_suspend_test_function, nullptr);
 }
 
@@ -395,7 +409,7 @@ int main(){
     test_uthread_create();
     test_uthread_join();
     uthread_create(yield_wrapper, nullptr);
-    test_thread_suspend();
+    test_thread_suspend_resume();
     start();
     return 0;
 }
