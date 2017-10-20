@@ -90,8 +90,29 @@ void uthread_yield();
 #endif
 
 /**
- * Completes a thread's execution. Removes all the threads that were
- * waiting on calling thread from the waiting list and adds to the
+ * Removes all the threads that were waiting on thread tid from
+ * the waiting list.
+ * @param tid - the tid that threads no longre have to wait for
+ */
+void free_waiting_threads(int tid) {
+
+    // Search for threads waiting on this thread - set them to ready
+    std::vector<int>::iterator it = waiting_list.begin();
+    std::vector<int>::iterator end = waiting_list.end();
+    while(it != end) {
+	int id = *it;
+	if(threads[id].waiting_for_tid = tid) {
+	    threads[id].waiting_for_tid = -1;
+	    waiting_list.erase(it);
+	    ready_list.push_back(id);
+	}
+	++it;
+    }
+    
+}
+
+/**
+ * Completes a thread's execution. adds to the
  * ready list.
  */
 void thread_complete(){
@@ -102,18 +123,7 @@ void thread_complete(){
     TCB* tcb = &threads[current_thread_id];
     tcb->complete = true;
 
-    // Search for threads waiting on this thread - set them to ready
-    std::vector<int>::iterator it = waiting_list.begin();
-    std::vector<int>::iterator end = waiting_list.end();
-    while(it != end) {
-	int id = *it;
-	if(threads[id].waiting_for_tid = current_thread_id) {
-	    threads[id].waiting_for_tid = -1;
-	    waiting_list.erase(it);
-	    ready_list.push_back(id);
-	}
-	++it;
-    }
+    free_waiting_threads(current_thread_id);
 
     if(ready_list.empty()) {
 	printf("All threads executed.\n");
@@ -239,6 +249,9 @@ int uthread_join(int tid, void **retval){
  * @param tid - The tid needed to be resumed
  */
 int uthread_resume(int tid) {
+    if(tid >= num_threads)
+	return -1;
+    
     std::vector<int>::iterator it;
 
     // Verify that tid is currently suspended
@@ -261,6 +274,9 @@ int uthread_resume(int tid) {
  * @param - The tid of the thread needed to be suspended
  */
 int uthread_suspend(int tid) {
+    if(tid >= num_threads)
+	return -1;
+    
     // If tid is complete it can't be suspended
     if(threads[tid].complete) {
 	printf("thread_suspend: Thread %d cannot be suspended. It is already complete\n", tid);
@@ -288,6 +304,28 @@ int uthread_suspend(int tid) {
     }
 
     return 0;
+}
+
+/**
+ * Terminate a thread by setting it to complete
+ * @param tid - the tid of the thread needing to be terminated
+ */
+int uthread_terminate(int tid) {
+    if(tid >= num_threads)
+	return -1;
+    
+    threads[tid].complete = true;
+
+    std::vector<int>::iterator it;
+    if((it = find(ready_list.begin(), ready_list.end(), tid)) != ready_list.end()) {
+	ready_list.erase(it);
+    } else if((it = find(waiting_list.begin(), waiting_list.end(), tid)) != waiting_list.end()) {
+	waiting_list.erase(it);
+    } else {
+	return -1;
+    }
+
+    free_waiting_threads(tid);
 }
 /**
  * Start the threading library.
