@@ -105,8 +105,8 @@ void free_waiting_threads(int tid) {
     std::deque<int>::iterator end = waiting_list.end();
     while(it != end) {
 	int id = *it;
-	if(threads[id].waiting_for_tid = tid) {
-	    threads[id].waiting_for_tid == -1;
+	if(threads[id].waiting_for_tid == tid) {
+	    threads[id].waiting_for_tid = -1;
 	    waiting_list.erase(it);
 	    ready_list.push_back(id);
 	}
