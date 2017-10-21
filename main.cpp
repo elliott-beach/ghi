@@ -53,6 +53,11 @@ int current_thread_id = -1;
 
 void uthread_yield();
 
+bool valid_tid(int tid){
+    return 0 <= tid && tid < num_threads;
+}
+
+
 /* A translation is required when using an address of a variable.
     Use this as a black box in your code. */
 #ifdef __x86_64__
@@ -239,7 +244,15 @@ int uthread_self(){
     return current_thread_id;
 }
 
+/**
+ * Join against another thread.
+ * @param tid The tid of the thread to join on.
+ * @param retval A pointer which will be set to the return value of the thread.
+ * @return 0 if join was successful, false if tid did not represent a valid thread.
+ */
 int uthread_join(int tid, void **retval){
+    if(!valid_tid(tid)) return -1;
+    if(tid == current_thread_id || threads[tid].complete) return -1;
     threads[current_thread_id].waiting_for_tid = tid;
     thread_switch();
     *retval = threads[tid].result;
