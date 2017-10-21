@@ -112,8 +112,7 @@ void free_waiting_threads(int tid) {
 }
 
 /**
- * Completes a thread's execution. adds to the
- * ready list.
+ * Completes a thread's execution. adds to the ready list.
  */
 void thread_complete(){
     int ret_val = sigsetjmp(threads[current_thread_id].env,1);
@@ -248,7 +247,8 @@ int uthread_join(int tid, void **retval){
  * @param tid - The tid needed to be resumed
  */
 int uthread_resume(int tid) {
-    if(tid >= num_threads)
+    // Verify that tid is valid
+    if(tid >= num_threads || tid < 0)
 	return -1;
     
     std::deque<int>::iterator it;
@@ -273,7 +273,8 @@ int uthread_resume(int tid) {
  * @param - The tid of the thread needed to be suspended
  */
 int uthread_suspend(int tid) {
-    if(tid >= num_threads)
+    // Verify that tid is valid
+    if(tid >= num_threads || tid < 0)
 	return -1;
     
     // If tid is complete it can't be suspended
@@ -309,7 +310,8 @@ int uthread_suspend(int tid) {
  * @param tid - the tid of the thread needing to be terminated
  */
 int uthread_terminate(int tid) {
-    if(tid >= num_threads)
+    // Verify that tid is valid
+    if(tid >= num_threads || tid < 0)
 	return -1;
     
     threads[tid].complete = true;
