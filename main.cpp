@@ -1,5 +1,9 @@
 // From http://www-users.cselabs.umn.edu/classes/Fall-2017/csci5103/PROJECT/PROJECT1/sigjmp-demo.c.
 
+#include <aio.h>
+#include <errno.h>
+#include <fcntl.h>
+
 #include <assert.h>
 #include <stdio.h>
 #include <setjmp.h>
@@ -242,6 +246,12 @@ int uthread_join(int tid, void **retval){
     return 0;
 }
 
+/**
+ * Attmpt to read nbytes bytes from file for file descriptor fildes, into the buffer pointed to by buff.
+ * @param fildes The file descriptor to read from.
+ * @param buf The buffer to read into.
+ * @param nbytes Number of bytes to read.
+ */
 ssize_t async_read(int fildes, void *buf, size_t nbytes){
     struct aiocb params{};
     params.aio_fildes = fildes;
@@ -484,10 +494,6 @@ void* async_test(void* arg){
     uthread_create(uthread_yield_test_function, nullptr);
     uthread_create(uthread_yield_test_function, nullptr);
     async_read(open("/etc/passwd", O_RDONLY), &buf, 100);
-}
-
-void test_async_read(){
-
 }
 
 int main(){
