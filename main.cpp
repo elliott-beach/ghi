@@ -125,8 +125,8 @@ void thread_complete(){
 
     free_waiting_threads(current_thread_id);
 
+    // If all threads have complete execution
     if(ready_list.empty()) {
-	printf("All threads executed.\n");
 	exit(0);
     }
 
@@ -222,7 +222,6 @@ void thread_switch(){
 
     // Deadlock
     if(ready_list.empty()) {
-	printf("Deadlock\n");
 	exit(0);
     }
 
@@ -245,7 +244,7 @@ int uthread_join(int tid, void **retval){
 }
 
 /**
- * Resume a suspended thread.
+ * Resume a suspended thread. Returns -1 on if tid is invalid or tid was not suspended
  * @param tid - The tid needed to be resumed
  */
 int uthread_resume(int tid) {
@@ -265,12 +264,12 @@ int uthread_resume(int tid) {
     }
 
     // If it wasn't suspended return an error
-    printf("thread_resume: Thread %d was not suspended\n", tid);
     return -1;
 }
 
 /**
- * Suspend a thread by adding it to the suspended list
+ * Suspend a thread by adding it to the suspended list. Return -1 if tid is invalid or
+ * tid is already suspended or complete
  * @param - The tid of the thread needed to be suspended
  */
 int uthread_suspend(int tid) {
@@ -279,11 +278,10 @@ int uthread_suspend(int tid) {
     
     // If tid is complete it can't be suspended
     if(threads[tid].complete) {
-	printf("thread_suspend: Thread %d cannot be suspended. It is already complete\n", tid);
 	return -1;
     }
 
-    // If somehow a thread tries to suspend itself
+    // If a thread tries to suspend itself
     if(tid == current_thread_id) {
 	suspended_list.push_back(current_thread_id);
 	thread_switch();
@@ -300,7 +298,7 @@ int uthread_suspend(int tid) {
 	waiting_list.erase(it);
 	suspended_list.push_back(tid);
     } else {
-	return -1;
+	return -1;  // Handles case if tid is already suspended
     }
 
     return 0;
