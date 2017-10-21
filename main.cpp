@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/time.h>
-#include <vector>
+#include <deque>
 #include <algorithm>
 
 #define SECOND 1000000
@@ -38,9 +38,9 @@ int num_threads = 0;
 /**
  * Ready List, waiting, suspended list
  */
-std::vector<int> ready_list;
-std::vector<int> waiting_list;
-std::vector<int> suspended_list;
+std::deque<int> ready_list;
+std::deque<int> waiting_list;
+std::deque<int> suspended_list;
 
 /**
  * TID of the current executing thread.
@@ -97,12 +97,12 @@ void uthread_yield();
 void free_waiting_threads(int tid) {
 
     // Search for threads waiting on this thread - set them to ready
-    std::vector<int>::iterator it = waiting_list.begin();
-    std::vector<int>::iterator end = waiting_list.end();
+    std::deque<int>::iterator it = waiting_list.begin();
+    std::deque<int>::iterator end = waiting_list.end();
     while(it != end) {
 	int id = *it;
 	if(threads[id].waiting_for_tid = tid) {
-	    threads[id].waiting_for_tid = -1;
+	    threads[id].waiting_for_tid == -1;
 	    waiting_list.erase(it);
 	    ready_list.push_back(id);
 	}
@@ -132,7 +132,7 @@ void thread_complete(){
 
     // Choose the first thread on the ready list
     current_thread_id = ready_list.front();
-    ready_list.erase(ready_list.begin());
+    ready_list.pop_front();
 
     siglongjmp(threads[current_thread_id].env,1);
 }
@@ -203,7 +203,7 @@ void uthread_yield(){
     ready_list.push_back(current_thread_id);
 
     current_thread_id = ready_list.front();
-    ready_list.erase(ready_list.begin());
+    ready_list.pop_front();
 
     siglongjmp(threads[current_thread_id].env,1);
 }
@@ -228,7 +228,7 @@ void thread_switch(){
 
     // Take the top thread off the ready list
     current_thread_id = ready_list.front();
-    ready_list.erase(ready_list.begin());
+    ready_list.pop_front();
 
     siglongjmp(threads[current_thread_id].env,1);
 }
@@ -252,7 +252,7 @@ int uthread_resume(int tid) {
     if(tid >= num_threads)
 	return -1;
     
-    std::vector<int>::iterator it;
+    std::deque<int>::iterator it;
 
     // Verify that tid is currently suspended
     if((it = find(suspended_list.begin(), suspended_list.end(), tid)) != suspended_list.end()) {
@@ -290,7 +290,7 @@ int uthread_suspend(int tid) {
 	return 0;
     }
 
-    std::vector<int>::iterator it;
+    std::deque<int>::iterator it;
 
     // Check if the tid trying to be suspended is in the ready list or the waiting list
     if((it = find(ready_list.begin(), ready_list.end(), tid)) != ready_list.end()) {
@@ -316,7 +316,7 @@ int uthread_terminate(int tid) {
     
     threads[tid].complete = true;
 
-    std::vector<int>::iterator it;
+    std::deque<int>::iterator it;
     if((it = find(ready_list.begin(), ready_list.end(), tid)) != ready_list.end()) {
 	ready_list.erase(it);
     } else if((it = find(waiting_list.begin(), waiting_list.end(), tid)) != waiting_list.end()) {
@@ -332,7 +332,7 @@ int uthread_terminate(int tid) {
  */
 void start(){
     current_thread_id = ready_list.front();
-    ready_list.erase(ready_list.begin());
+    ready_list.pop_front();
     siglongjmp(threads[current_thread_id].env,1);
 }
 
