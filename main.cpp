@@ -34,6 +34,12 @@ struct TCB {
  */
 TCB threads[1000];
 
+
+/**
+ * Jump buff for returning to main environment.
+ */
+sigjmp_buf main_env;
+
 /**
  * Total number of created threads.
  */
@@ -52,6 +58,10 @@ std::deque<int> suspended_list;
 int current_thread_id = -1;
 
 void uthread_yield();
+
+void finish(){
+    siglongjmp(main_env, 1);
+}
 
 bool valid_tid(int tid){
     return 0 <= tid && tid < num_threads;
@@ -135,7 +145,7 @@ void thread_complete(){
 
     // If all threads have complete execution
     if(ready_list.empty()) {
-	exit(0);
+	    finish();
     }
 
     // Choose the first thread on the ready list
@@ -230,7 +240,7 @@ void thread_switch(){
 
     // Deadlock
     if(ready_list.empty()) {
-	exit(0);
+	   finish();
     }
 
     // Take the top thread off the ready list
@@ -374,6 +384,9 @@ int uthread_terminate(int tid) {
  * Start the threading library.
  */
 void start(){
+    if(sigsetjmp(main_env,1) != 0){
+        return;
+    }
     current_thread_id = ready_list.front();
     ready_list.pop_front();
     siglongjmp(threads[current_thread_id].env,1);
@@ -474,6 +487,12 @@ void* uthread_join_test_function(void* arg){
     return nullptr;
 }
 
+void* uthread_join_invalid_tid_test(void* arg){
+    void* retval;
+    int ret = uthread_join(-1, &retval);
+    assert(ret != 0);
+}
+
 void test_uthread_join(){
     uthread_create(uthread_join_test_function, nullptr);
 }
@@ -514,8 +533,11 @@ int main(){
     test_uthread_create();
     test_uthread_join();
     uthread_create(yield_wrapper, nullptr);
+    int id = uthread_create(uthread_join_invalid_tid_test, nullptr);
     test_thread_suspend_resume();
     uthread_create(async_test, nullptr);
     start();
+    assert(threads[id].complete);
+    printf("at main\n");
     return 0;
 }
