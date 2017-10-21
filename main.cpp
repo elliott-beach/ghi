@@ -108,7 +108,7 @@ void free_waiting_threads(int tid) {
 	}
 	++it;
     }
-    
+
 }
 
 /**
@@ -177,7 +177,7 @@ int uthread_create(void *(start_routine)(void *), void* arg){
 
     // Add thread to ready list
     ready_list.push_back(num_threads);
-    
+
     // We now have one more thread!
     return num_threads++;
 }
@@ -242,6 +242,26 @@ int uthread_join(int tid, void **retval){
     return 0;
 }
 
+ssize_t async_read(int fildes, void *buf, size_t nbytes){
+    struct aiocb params{};
+    params.aio_fildes = fildes;
+    params.aio_buf = buf;
+    params.aio_nbytes = nbytes;
+    if(aio_read(&params) != 0) return -1;
+    while(true){
+        switch(aio_error(&params)){
+            case EINPROGRESS:
+                uthread_yield();
+                continue;
+            case ECANCELED:
+                errno = ECANCELED;
+                return -1;
+            default:
+                return aio_return(&params);
+        }
+    }
+}
+
 /**
  * Resume a suspended thread. Returns -1 on if tid is invalid or tid was not suspended
  * @param tid - The tid needed to be resumed
@@ -250,7 +270,7 @@ int uthread_resume(int tid) {
     // Verify that tid is valid
     if(tid >= num_threads || tid < 0)
 	return -1;
-    
+
     std::deque<int>::iterator it;
 
     // Verify that tid is currently suspended
@@ -276,7 +296,7 @@ int uthread_suspend(int tid) {
     // Verify that tid is valid
     if(tid >= num_threads || tid < 0)
 	return -1;
-    
+
     // If tid is complete it can't be suspended
     if(threads[tid].complete) {
 	return -1;
@@ -313,7 +333,7 @@ int uthread_terminate(int tid) {
     // Verify that tid is valid
     if(tid >= num_threads || tid < 0)
 	return -1;
-    
+
     threads[tid].complete = true;
 
     std::deque<int>::iterator it;
@@ -458,12 +478,25 @@ void test_thread_suspend_resume() {
     uthread_create(uthread_suspend_test_function, nullptr);
 }
 
+void* async_test(void* arg){
+    char buf [1024];
+    uthread_create(uthread_yield_test_function, nullptr);
+    uthread_create(uthread_yield_test_function, nullptr);
+    uthread_create(uthread_yield_test_function, nullptr);
+    async_read(open("/etc/passwd", O_RDONLY), &buf, 100);
+}
+
+void test_async_read(){
+
+}
+
 int main(){
     test_thread_self();
     test_uthread_create();
     test_uthread_join();
     uthread_create(yield_wrapper, nullptr);
     test_thread_suspend_resume();
+    uthread_create(async_test, nullptr);
     start();
     return 0;
 }
