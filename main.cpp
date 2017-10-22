@@ -392,7 +392,8 @@ int uthread_terminate(int tid) {
 	waiting_list.erase(it);
     } else {
 	enable_interrupts();
-	return -1;
+	thread_complete();  // If tid is the running thread
+	return 0;
     }
 
     free_waiting_threads(tid);
