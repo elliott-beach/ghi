@@ -147,7 +147,6 @@ void free_waiting_threads(int tid) {
 	}
 	++it;
     }
-    
 }
 
 /**
@@ -416,7 +415,7 @@ int uthread_init(int time_slice) {
  */
 void timer_handler(int signum) {
     static int count = 0;
-    printf("Timer expired!: %d\n", ++count);
+    printf("Timer expired: %d\n", ++count);
     uthread_yield();
 }
 
@@ -425,7 +424,7 @@ void timer_handler(int signum) {
  */
 int setupitimer(void) {
     timer.it_interval.tv_sec = 0;
-    timer.it_interval.tv_usec = 10;
+    timer.it_interval.tv_usec = 1000;
     timer.it_value = timer.it_interval;
     return setitimer(ITIMER_VIRTUAL, &timer, nullptr);
 }
