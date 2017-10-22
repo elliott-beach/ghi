@@ -34,6 +34,12 @@ struct TCB {
  */
 TCB threads[1000];
 
+
+/**
+ * Jump buff for returning to main environment.
+ */
+sigjmp_buf main_env;
+
 /**
  * Total number of created threads.
  */
@@ -52,6 +58,15 @@ std::deque<int> suspended_list;
 int current_thread_id = -1;
 
 void uthread_yield();
+
+void finish(){
+    siglongjmp(main_env, 1);
+}
+
+bool valid_tid(int tid){
+    return 0 <= tid && tid < num_threads;
+}
+
 
 /* A translation is required when using an address of a variable.
     Use this as a black box in your code. */
@@ -105,8 +120,8 @@ void free_waiting_threads(int tid) {
     std::deque<int>::iterator end = waiting_list.end();
     while(it != end) {
 	int id = *it;
-	if(threads[id].waiting_for_tid = tid) {
-	    threads[id].waiting_for_tid == -1;
+	if(threads[id].waiting_for_tid == tid) {
+	    threads[id].waiting_for_tid = -1;
 	    waiting_list.erase(it);
 	    ready_list.push_back(id);
 	}
@@ -130,7 +145,7 @@ void thread_complete(){
 
     // If all threads have complete execution
     if(ready_list.empty()) {
-	exit(0);
+	    finish();
     }
 
     // Choose the first thread on the ready list
@@ -225,7 +240,7 @@ void thread_switch(){
 
     // Deadlock
     if(ready_list.empty()) {
-	exit(0);
+	   finish();
     }
 
     // Take the top thread off the ready list
@@ -239,7 +254,15 @@ int uthread_self(){
     return current_thread_id;
 }
 
+/**
+ * Join against another thread.
+ * @param tid The tid of the thread to join on.
+ * @param retval A pointer which will be set to the return value of the thread.
+ * @return 0 if join was successful, false if tid did not represent a valid thread.
+ */
 int uthread_join(int tid, void **retval){
+    if(!valid_tid(tid)) return -1;
+    if(tid == current_thread_id || threads[tid].complete) return 0;
     threads[current_thread_id].waiting_for_tid = tid;
     thread_switch();
     *retval = threads[tid].result;
@@ -278,9 +301,7 @@ ssize_t async_read(int fildes, void *buf, size_t nbytes){
  */
 int uthread_resume(int tid) {
     // Verify that tid is valid
-    if(tid >= num_threads || tid < 0)
-	return -1;
-
+    if(!valid_tid(tid)) return -1;
     std::deque<int>::iterator it;
 
     // Verify that tid is currently suspended
@@ -304,9 +325,7 @@ int uthread_resume(int tid) {
  */
 int uthread_suspend(int tid) {
     // Verify that tid is valid
-    if(tid >= num_threads || tid < 0)
-	return -1;
-
+    if(!valid_tid(tid)) return -1;
     // If tid is complete it can't be suspended
     if(threads[tid].complete) {
 	return -1;
@@ -341,9 +360,7 @@ int uthread_suspend(int tid) {
  */
 int uthread_terminate(int tid) {
     // Verify that tid is valid
-    if(tid >= num_threads || tid < 0)
-	return -1;
-
+    if(!valid_tid(tid)) return -1;
     threads[tid].complete = true;
 
     std::deque<int>::iterator it;
@@ -361,6 +378,9 @@ int uthread_terminate(int tid) {
  * Start the threading library.
  */
 void start(){
+    if(sigsetjmp(main_env,1) != 0){
+        return;
+    }
     current_thread_id = ready_list.front();
     ready_list.pop_front();
     siglongjmp(threads[current_thread_id].env,1);
@@ -461,6 +481,12 @@ void* uthread_join_test_function(void* arg){
     return nullptr;
 }
 
+void* uthread_join_invalid_tid_test(void* arg){
+    void* retval;
+    int ret = uthread_join(-1, &retval);
+    assert(ret != 0);
+}
+
 void test_uthread_join(){
     uthread_create(uthread_join_test_function, nullptr);
 }
@@ -501,8 +527,11 @@ int main(){
     test_uthread_create();
     test_uthread_join();
     uthread_create(yield_wrapper, nullptr);
+    int id = uthread_create(uthread_join_invalid_tid_test, nullptr);
     test_thread_suspend_resume();
     uthread_create(async_test, nullptr);
     start();
+    assert(threads[id].complete);
+    printf("at main\n");
     return 0;
 }
