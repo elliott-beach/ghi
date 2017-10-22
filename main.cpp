@@ -59,6 +59,8 @@ int current_thread_id = -1;
 
 void uthread_yield();
 
+void test_uthread_suspend();
+
 void finish(){
     siglongjmp(main_env, 1);
 }
@@ -392,13 +394,13 @@ void start(){
 
 void* uthread_test_function(void* arg){
     assert((long)arg == 10);
-    for(int i=0;i<100;i++){
+    for(int i=0;i<5;i++){
         printf("%d\n", i);
     }
     return 0;
 }
 void* uthread_yield_test_function(void* arg){
-    int limit = 100;
+    int limit = 5;
     for(int i=0;i<2*limit;i++){
         if(i % limit == 0){
             uthread_yield();
@@ -419,46 +421,9 @@ void* return_10_fixture(void* arg){
    return (void*)10l;
 }
 
-void* uthread_join_test(void* arg){
-    uthread_create(return_10_fixture, nullptr);
-}
-
-void* f(void * arg){
-    assert((long)arg == 10);
-    printf("argument: %ld\n", (long)arg);
-    int i=0;
-    while(1) {
-        ++i;
-        printf("in f (%d)\n",i);
-        if(i % 5 == 0){
-        }
-        if (i % 3 == 0) {
-            printf("f: switching\n");
-            uthread_yield();
-        }
-        usleep(SECOND);
-    }
-    return 0;
-}
-
-void* g(void * arg){
-    printf("&arg: %p\n", &arg);
-    printf("arg: 0x%lx\n", (long)arg);
-    int i=0;
-    while(1){
-        ++i;
-        printf("in g (%d)\n",i);
-        if (i % 5 == 0) {
-            printf("g: switching\n");
-            uthread_yield();
-        }
-        usleep(SECOND);
-    }
-    return 0;
-}
-
 void test_uthread_create(){
     uthread_create(uthread_test_function, (void*)10l);
+    start();
 }
 
 // Create 10 threads, and check that they alternate between eachother
@@ -472,6 +437,7 @@ void test_thread_yield(){
 
 void test_thread_self(){
     uthread_create(uthread_self_test_function, nullptr);
+    start();
 }
 
 void* uthread_join_test_function(void* arg){
@@ -489,6 +455,7 @@ void* uthread_join_invalid_tid_test(void* arg){
 
 void test_uthread_join(){
     uthread_create(uthread_join_test_function, nullptr);
+    start();
 }
 
 void* yield_wrapper(void* arg){
@@ -514,7 +481,7 @@ void test_thread_suspend_resume() {
     uthread_create(uthread_suspend_test_function, nullptr);
 }
 
-void* async_test(void* arg){
+void* async_test_function(void* arg){
     char buf [1024];
     uthread_create(uthread_yield_test_function, nullptr);
     uthread_create(uthread_yield_test_function, nullptr);
@@ -522,16 +489,32 @@ void* async_test(void* arg){
     async_read(open("/etc/passwd", O_RDONLY), &buf, 100);
 }
 
+
+void test_uthread_suspend() {
+    uthread_create(yield_wrapper, nullptr);
+    test_thread_suspend_resume();
+    start();
+}
+
+void* test_join_invalid_tid(){
+    int id = uthread_create(uthread_join_invalid_tid_test, nullptr);
+    start();
+    assert(threads[id].complete);
+}
+
+void* test_async(){
+    uthread_create(async_test_function, nullptr);
+    start();
+}
+
 int main(){
     test_thread_self();
     test_uthread_create();
     test_uthread_join();
-    uthread_create(yield_wrapper, nullptr);
-    int id = uthread_create(uthread_join_invalid_tid_test, nullptr);
-    test_thread_suspend_resume();
-    uthread_create(async_test, nullptr);
-    start();
-    assert(threads[id].complete);
-    printf("at main\n");
+    test_uthread_suspend();
+    test_join_invalid_tid();
+    test_async();
+    printf("All tests passed.\n");
     return 0;
 }
+
