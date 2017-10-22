@@ -226,10 +226,12 @@ int uthread_create(void *(start_routine)(void *), void* arg){
     // Add thread to ready list
     ready_list.push_back(num_threads);
 
+    // We now have one more thread!
+    num_threads++;
+
     enable_interrupts();
     
-    // We now have one more thread!
-    return num_threads++;
+    return num_threads;
 }
 
 /*
@@ -261,6 +263,7 @@ void uthread_yield(){
 
     enable_interrupts();
 
+    printf("Thread about to run: %d\n", current_thread_id);
     siglongjmp(threads[current_thread_id].env,1);
 }
 
@@ -374,13 +377,13 @@ int uthread_suspend(int tid) {
  * @param tid - the tid of the thread needing to be terminated
  */
 int uthread_terminate(int tid) {
-    disable_interrupts();
     
     // Verify that tid is valid
     if(tid >= num_threads || tid < 0) {
-	enable_interrupts();
 	return -1;
     }
+
+    disable_interrupts();
     
     threads[tid].complete = true;
 
@@ -435,7 +438,7 @@ int setupitimer(void) {
 int setupinterrupt(void) {
     sa.sa_handler = timer_handler;
     sa.sa_flags = 0;
-    return (sigemptyset(&sa.sa_mask) || sigaction(SIGVTALRM, &sa, nullptr));
+    return (sigemptyset(&sa.sa_mask) || sigaction(SIGINT, &sa, nullptr));
 }
 
 /**
@@ -467,6 +470,7 @@ void* uthread_test_function(void* arg){
     return 0;
 }
 void* uthread_yield_test_function(void* arg){
+    usleep(SECOND);
     int limit = 100;
     for(int i=0;i<2*limit;i++){
         if(i % limit == 0){
