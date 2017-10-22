@@ -47,6 +47,12 @@ std::deque<int> suspended_list;
  */
 int current_thread_id = -1;
 
+/**
+ * For signal handler and timer
+ */
+struct sigaction sa;
+struct itimerval timer;
+
 void uthread_yield();
 
 /* A translation is required when using an address of a variable.
@@ -90,6 +96,39 @@ void uthread_yield();
 #endif
 
 /**
+ * Blocks SIGVTALRM interrupts
+ */
+void disable_interrupts() {
+
+    // Block interrupts
+    sigset_t blockmask;
+    if((sigemptyset(&blockmask) == -1) || (sigaddset(&blockmask, SIGVTALRM) == -1)) {
+	perror("Failed to initialize signal set");
+	exit(0);
+    } else if(sigprocmask(SIG_BLOCK, &blockmask, nullptr) == -1) {
+	perror("Failed to block interrupt");
+	exit(0);
+    }
+}
+
+/**
+ * Removes the block on SIGVTALRM
+ */
+void enable_interrupts() {
+    sigset_t blockmask;
+    if((sigemptyset(&blockmask) == -1) || (sigaddset(&blockmask, SIGVTALRM) == -1)) {
+	perror("Failed to intialize signal set");
+	exit(0);
+    }
+	
+    // Unblock interrupts
+    if(sigprocmask(SIG_UNBLOCK, &blockmask, nullptr) == -1) {
+	perror("Failed to unblock interrupt");
+	exit(0);
+    }
+}
+
+/**
  * Removes all the threads that were waiting on thread tid from
  * the waiting list.
  * @param tid - the tid that threads no longre have to wait for
@@ -115,8 +154,14 @@ void free_waiting_threads(int tid) {
  * Completes a thread's execution. adds to the ready list.
  */
 void thread_complete(){
+
+    disable_interrupts();
+    
     int ret_val = sigsetjmp(threads[current_thread_id].env,1);
-    if (ret_val == 1) return;
+    if (ret_val == 1) {
+	enable_interrupts();
+	return;
+    }
 
     // After this is set, thread will never execute again.
     TCB* tcb = &threads[current_thread_id];
@@ -133,6 +178,8 @@ void thread_complete(){
     current_thread_id = ready_list.front();
     ready_list.pop_front();
 
+    enable_interrupts();
+    
     siglongjmp(threads[current_thread_id].env,1);
 }
 
@@ -156,6 +203,8 @@ void thread_wrapper(void *arg){
  */
 int uthread_create(void *(start_routine)(void *), void* arg){
 
+    disable_interrupts();
+    
     TCB* tcb = &threads[num_threads];
 
     // Store the arg and function in a global variable.
@@ -177,6 +226,8 @@ int uthread_create(void *(start_routine)(void *), void* arg){
 
     // Add thread to ready list
     ready_list.push_back(num_threads);
+
+    enable_interrupts();
     
     // We now have one more thread!
     return num_threads++;
@@ -194,15 +245,22 @@ bool is_thread_ready(int tid){
 
 void uthread_yield(){
 
+    disable_interrupts();
+
     // Save execution state.
     int ret_val = sigsetjmp(threads[current_thread_id].env,1);
-    if (ret_val == 1) return;
+    if (ret_val == 1) {
+	enable_interrupts();
+	return;
+    }
 
     // Choose the next thread to execute.
     ready_list.push_back(current_thread_id);
 
     current_thread_id = ready_list.front();
     ready_list.pop_front();
+
+    enable_interrupts();
 
     siglongjmp(threads[current_thread_id].env,1);
 }
@@ -213,8 +271,13 @@ void uthread_yield(){
  */
 void thread_switch(){
 
+    disable_interrupts();
+
     int ret_val = sigsetjmp(threads[current_thread_id].env,1);
-    if (ret_val == 1) return;
+    if (ret_val == 1) {
+	enable_interrupts();
+	return;
+    }
 
     // Place calling thread on waiting list
     waiting_list.push_back(current_thread_id);
@@ -228,6 +291,8 @@ void thread_switch(){
     current_thread_id = ready_list.front();
     ready_list.pop_front();
 
+    enable_interrupts();
+    
     siglongjmp(threads[current_thread_id].env,1);
 }
 
@@ -310,9 +375,13 @@ int uthread_suspend(int tid) {
  * @param tid - the tid of the thread needing to be terminated
  */
 int uthread_terminate(int tid) {
+    disable_interrupts();
+    
     // Verify that tid is valid
-    if(tid >= num_threads || tid < 0)
+    if(tid >= num_threads || tid < 0) {
+	enable_interrupts();
 	return -1;
+    }
     
     threads[tid].complete = true;
 
@@ -322,11 +391,60 @@ int uthread_terminate(int tid) {
     } else if((it = find(waiting_list.begin(), waiting_list.end(), tid)) != waiting_list.end()) {
 	waiting_list.erase(it);
     } else {
+	enable_interrupts();
 	return -1;
     }
 
     free_waiting_threads(tid);
+
+    enable_interrupts();
+    return 0;
 }
+
+/**
+ * Sets the time slice for how long each thread runs
+ * @param time_slice - the new time slice for each thread in microseconds 
+ */
+int uthread_init(int time_slice) {
+    timer.it_interval.tv_usec = time_slice;
+    return 0;
+}
+
+/**
+ * Calls thread_yield every time the timer expires
+ */
+void timer_handler(int signum) {
+    static int count = 0;
+    printf("Timer expired!: %d\n", ++count);
+    uthread_yield();
+}
+
+/**
+ * Set up timer
+ */
+int setupitimer(void) {
+    timer.it_interval.tv_sec = 0;
+    timer.it_interval.tv_usec = 10;
+    timer.it_value = timer.it_interval;
+    return setitimer(ITIMER_VIRTUAL, &timer, nullptr);
+}
+
+/** 
+ * Set up interrupt handler
+ */
+int setupinterrupt(void) {
+    if(setupinterrupt() == -1) {
+	perror("Failed to set up handler");
+    }
+    if(setupitimer() == -1) {
+	perror("Failed to set up timer");
+    }
+    
+    sa.sa_handler = timer_handler;
+    sa.sa_flags = 0;
+    return (sigemptyset(&sa.sa_mask) || sigaction(SIGVTALRM, &sa, nullptr));
+}
+
 /**
  * Start the threading library.
  */
