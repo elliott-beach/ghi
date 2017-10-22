@@ -203,8 +203,9 @@ void thread_wrapper(void *arg){
 int uthread_create(void *(start_routine)(void *), void* arg){
 
     disable_interrupts();
-    
-    TCB* tcb = &threads[num_threads];
+
+    int tid = num_threads;
+    TCB* tcb = &threads[tid];
 
     // Store the arg and function in a global variable.
     tcb->function = start_routine;
@@ -224,14 +225,14 @@ int uthread_create(void *(start_routine)(void *), void* arg){
     sigemptyset(&tcb->env->__saved_mask);
 
     // Add thread to ready list
-    ready_list.push_back(num_threads);
+    ready_list.push_back(tid);
 
     // We now have one more thread!
     num_threads++;
 
     enable_interrupts();
     
-    return num_threads;
+    return tid;
 }
 
 /*
@@ -317,9 +318,10 @@ int uthread_resume(int tid) {
     // Verify that tid is valid
     if(tid >= num_threads || tid < 0)
 	return -1;
+
+    enable_interrupts();
     
     std::deque<int>::iterator it;
-
     // Verify that tid is currently suspended
     if((it = find(suspended_list.begin(), suspended_list.end(), tid)) != suspended_list.end()) {
 	suspended_list.erase(it);
@@ -327,9 +329,11 @@ int uthread_resume(int tid) {
 	    ready_list.push_back(tid);
 	else
 	    waiting_list.push_back(tid);
+	enable_interrupts();
 	return 0;
     }
 
+    enable_interrupts();
     // If it wasn't suspended return an error
     return -1;
 }
@@ -343,6 +347,8 @@ int uthread_suspend(int tid) {
     // Verify that tid is valid
     if(tid >= num_threads || tid < 0)
 	return -1;
+
+    disable_interrupts();
     
     // If tid is complete it can't be suspended
     if(threads[tid].complete) {
@@ -366,8 +372,11 @@ int uthread_suspend(int tid) {
 	waiting_list.erase(it);
 	suspended_list.push_back(tid);
     } else {
+	enable_interrupts();
 	return -1;  // Handles case if tid is already suspended
     }
+
+    enable_interrupts();
 
     return 0;
 }
@@ -438,7 +447,7 @@ int setupitimer(void) {
 int setupinterrupt(void) {
     sa.sa_handler = timer_handler;
     sa.sa_flags = 0;
-    return (sigemptyset(&sa.sa_mask) || sigaction(SIGINT, &sa, nullptr));
+    return (sigemptyset(&sa.sa_mask) || sigaction(SIGVTALRM, &sa, nullptr));
 }
 
 /**
@@ -470,7 +479,6 @@ void* uthread_test_function(void* arg){
     return 0;
 }
 void* uthread_yield_test_function(void* arg){
-    usleep(SECOND);
     int limit = 100;
     for(int i=0;i<2*limit;i++){
         if(i % limit == 0){
