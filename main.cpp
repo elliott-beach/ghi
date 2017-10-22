@@ -433,13 +433,6 @@ int setupitimer(void) {
  * Set up interrupt handler
  */
 int setupinterrupt(void) {
-    if(setupinterrupt() == -1) {
-	perror("Failed to set up handler");
-    }
-    if(setupitimer() == -1) {
-	perror("Failed to set up timer");
-    }
-    
     sa.sa_handler = timer_handler;
     sa.sa_flags = 0;
     return (sigemptyset(&sa.sa_mask) || sigaction(SIGVTALRM, &sa, nullptr));
@@ -449,6 +442,14 @@ int setupinterrupt(void) {
  * Start the threading library.
  */
 void start(){
+    
+    if(setupinterrupt() == -1) {
+	perror("Failed to set up handler");
+    }
+    if(setupitimer() == -1) {
+	perror("Failed to set up timer");
+    }
+    
     current_thread_id = ready_list.front();
     ready_list.pop_front();
     siglongjmp(threads[current_thread_id].env,1);
