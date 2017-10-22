@@ -262,7 +262,7 @@ int uthread_self(){
  */
 int uthread_join(int tid, void **retval){
     if(!valid_tid(tid)) return -1;
-    if(tid == current_thread_id || threads[tid].complete) return -1;
+    if(tid == current_thread_id || threads[tid].complete) return 0;
     threads[current_thread_id].waiting_for_tid = tid;
     thread_switch();
     *retval = threads[tid].result;
@@ -301,9 +301,7 @@ ssize_t async_read(int fildes, void *buf, size_t nbytes){
  */
 int uthread_resume(int tid) {
     // Verify that tid is valid
-    if(tid >= num_threads || tid < 0)
-	return -1;
-
+    if(!valid_tid(tid)) return -1;
     std::deque<int>::iterator it;
 
     // Verify that tid is currently suspended
@@ -327,9 +325,7 @@ int uthread_resume(int tid) {
  */
 int uthread_suspend(int tid) {
     // Verify that tid is valid
-    if(tid >= num_threads || tid < 0)
-	return -1;
-
+    if(!valid_tid(tid)) return -1;
     // If tid is complete it can't be suspended
     if(threads[tid].complete) {
 	return -1;
@@ -364,9 +360,7 @@ int uthread_suspend(int tid) {
  */
 int uthread_terminate(int tid) {
     // Verify that tid is valid
-    if(tid >= num_threads || tid < 0)
-	return -1;
-
+    if(!valid_tid(tid)) return -1;
     threads[tid].complete = true;
 
     std::deque<int>::iterator it;
