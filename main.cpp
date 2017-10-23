@@ -67,6 +67,8 @@ void uthread_yield();
 
 void test_uthread_suspend();
 
+void test_timing();
+
 void finish(){
     siglongjmp(main_env, 1);
 }
@@ -221,11 +223,15 @@ void thread_wrapper(void *arg){
  * Create a new uthread.
  * @param start_routine - The function that should be executed in the thread.
  * @param arg - An argument to pass to the function.
- * @return The tid of the created thread.
+ * @return The tid of the created thread, or -1 if there were too many threads.
  */
 int uthread_create(void *(start_routine)(void *), void* arg){
 
     disable_interrupts();
+    if(num_threads >= 999){
+        enable_interrupts();
+        return -1;
+    }
 
     int tid = num_threads;
     TCB* tcb = &threads[tid];
@@ -560,6 +566,19 @@ void* return_10_fixture(void* arg){
    return (void*)10l;
 }
 
+void* test_timing_fixture(void* arg){
+    int limit = 5;
+    static int i = 0;
+    i++;
+    if (i < limit){
+        uthread_create(test_timing_fixture, nullptr);
+        // If we can get through this while loop, timing is working.
+        while(i < limit)
+            ;
+    }
+    return 0;
+}
+
 void* uthread_join_fixture(void *arg){
     void* retval;
     int tid = uthread_create(return_10_fixture, nullptr);
@@ -656,6 +675,10 @@ void* test_async(){
     start();
     assert(reinterpret_cast<long>(threads[tid].result) == 100);
 }
+void test_timing() {
+    uthread_create(test_timing_fixture, nullptr);
+    start();
+}
 
 int main(){
     test_thread_self();
@@ -665,6 +688,9 @@ int main(){
     test_join_invalid_tid();
     test_async();
     printf("All tests passed.\n");
+    test_timing();
     return 0;
 }
+
+
 
