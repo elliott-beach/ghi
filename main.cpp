@@ -468,11 +468,8 @@ int uthread_terminate(int tid) {
         return 0; // Unreachable code.
     }
 
-
-
     remove(ready_list, tid) || remove(waiting_list, tid) || remove(suspended_list, tid);
     set_complete(tid);
-
 
     enable_interrupts();
     return 0;
@@ -629,6 +626,18 @@ void *test_uthread_yield_fixture(void *arg) {
     assert(threads[tid].complete);
 }
 
+void* uthread_terminate_fixture(void* arg){
+    int tid = uthread_create(uthread_self_fixture, nullptr);
+    assert(!threads[tid].complete);
+    uthread_terminate(tid);
+    assert(threads[tid].complete);
+}
+
+void* uthread_terminate_self_fixture(void* arg){
+    uthread_terminate(current_thread_id);
+    assert(false);
+}
+
 // Tests
 
 // Test that creating a uthread can start a thread, passing
@@ -688,6 +697,13 @@ void test_timing() {
     start();
 }
 
+void test_terminate(){
+    uthread_create(uthread_terminate_fixture, nullptr);
+    start();
+    uthread_create(uthread_terminate_self_fixture, nullptr);
+    start();
+}
+
 int main() {
     test_thread_self();
     test_uthread_create();
@@ -696,6 +712,7 @@ int main() {
     test_join_invalid_tid();
     test_async();
     test_timing();
+    test_terminate();
     printf("All tests passed.\n");
     return 0;
 }
