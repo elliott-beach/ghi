@@ -80,7 +80,7 @@ bool valid_tid(int tid) {
  * @param id - The id to remove.
  * @return true if the item was removec, else false.
  */
-bool remove(std::deque<int> items, int num) {
+bool remove(std::deque<int> &items, int num) {
     std::deque<int>::iterator it;
     if ((it = find(items.begin(), items.end(), num)) != items.end()) {
         items.erase(it);
