@@ -8,14 +8,11 @@
 #include <stdio.h>
 #include <setjmp.h>
 #include <signal.h>
-#include <string.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <sys/time.h>
 #include <deque>
 #include <algorithm>
 
-#define SECOND 1000000
 #define STACK_SIZE 4096
 
 typedef void *(*thread_func)(void *);
@@ -277,16 +274,6 @@ int uthread_create(void *(start_routine)(void *), void* arg){
     enable_interrupts();
 
     return tid;
-}
-
-/*
-* Returns true if thread with given tid is ready, else false
-* @param tid - The tid of the thread.
-*/
-bool is_thread_ready(int tid){
-    TCB &tcb = threads[tid];
-    int w_tid = tcb.waiting_for_tid;
-    return !tcb.complete && (w_tid == -1 || threads[w_tid].complete);
 }
 
 void uthread_yield(){
@@ -703,8 +690,8 @@ int main(){
     test_uthread_suspend();
     test_join_invalid_tid();
     test_async();
-    printf("All tests passed.\n");
     test_timing();
+    printf("All tests passed.\n");
     return 0;
 }
 
