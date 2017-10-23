@@ -293,7 +293,6 @@ void uthread_yield(){
 
     enable_interrupts();
 
-    printf("Thread about to run: %d\n", current_thread_id);
     siglongjmp(threads[current_thread_id].env,1);
 }
 
@@ -485,7 +484,7 @@ int uthread_init(int time_slice) {
  */
 void timer_handler(int signum) {
     static int count = 0;
-    printf("Timer expired: %d\n", ++count);
+    count++;
     uthread_yield();
 }
 
