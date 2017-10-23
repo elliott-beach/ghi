@@ -305,6 +305,9 @@ void uthread_yield() {
     current_thread_id = ready_list.front();
     ready_list.pop_front();
 
+    // Reset the quantum
+    if(setitimer(ITIMER_VIRTUAL, &timer, nullptr));
+
     enable_interrupts();
 
     siglongjmp(threads[current_thread_id].env, 1);
@@ -480,6 +483,9 @@ int uthread_terminate(int tid) {
  * @param time_slice - the new time slice for each thread in microseconds
  */
 int uthread_init(int time_slice) {
+    if(time_slice <= 0) 
+	return -1;
+    
     timer.it_interval.tv_usec = time_slice;
     return setitimer(ITIMER_VIRTUAL, &timer, nullptr);
 }
