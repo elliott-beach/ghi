@@ -8,11 +8,14 @@
 #include <stdio.h>
 #include <setjmp.h>
 #include <signal.h>
+#include <string.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <sys/time.h>
 #include <deque>
 #include <algorithm>
 
+#define SECOND 1000000
 #define STACK_SIZE 4096
 
 typedef void *(*thread_func)(void *);
@@ -24,6 +27,7 @@ struct TCB {
     void *result;
     int waiting_for_tid = -1;
     bool complete;
+    char* stack;
 };
 
 /**
@@ -72,6 +76,40 @@ void finish() {
 
 bool valid_tid(int tid) {
     return 0 <= tid && tid < num_threads;
+}
+
+/**
+ * Removes all the threads that were waiting on thread tid from
+ * the waiting list.
+ * @param tid - the tid that threads no longre have to wait for
+ */
+void free_waiting_threads(int tid) {
+
+    // Search for threads waiting on this thread - set them to ready
+    std::deque<int>::iterator it = waiting_list.begin();
+    std::deque<int>::iterator end = waiting_list.end();
+    while (it != end) {
+        int id = *it;
+        if (threads[id].waiting_for_tid == tid) {
+            threads[id].waiting_for_tid = -1;
+            waiting_list.erase(it);
+            ready_list.push_back(id);
+        }
+        ++it;
+    }
+}
+
+
+/**
+ * Mark a thread as complete and release its resources.
+ * Interrupts should be disabled when this function is called.
+ * @param tid The tid of the thread.
+ */
+void set_complete(int tid){
+    TCB &tcb = threads[tid];
+    tcb.complete = true;
+    free(tcb.stack);
+    free_waiting_threads(tid);
 }
 
 /**
@@ -163,28 +201,6 @@ void enable_interrupts() {
 }
 
 /**
- * Removes all the threads that were waiting on thread tid from
- * the waiting list.
- * @param tid - the tid that threads no longre have to wait for
- */
-void free_waiting_threads(int tid) {
-
-    // Search for threads waiting on this thread - set them to ready
-    std::deque<int>::iterator it = waiting_list.begin();
-    std::deque<int>::iterator end = waiting_list.end();
-    while (it != end) {
-        int id = *it;
-        if (threads[id].waiting_for_tid == tid) {
-            threads[id].waiting_for_tid = -1;
-            waiting_list.erase(it);
-            ready_list.push_back(id);
-        }
-        ++it;
-    }
-
-}
-
-/**
  * Completes a thread's execution. adds to the ready list.
  */
 void thread_complete() {
@@ -197,11 +213,7 @@ void thread_complete() {
         return;
     }
 
-    // After this is set, thread will never execute again.
-    TCB *tcb = &threads[current_thread_id];
-    tcb->complete = true;
-
-    free_waiting_threads(current_thread_id);
+    set_complete(current_thread_id);
 
     // If all threads have complete execution
     if (ready_list.empty()) {
@@ -253,10 +265,10 @@ int uthread_create(void *(start_routine)(void *), void *arg) {
     tcb->arg = arg;
 
     // Allocate the stack.
-    auto *stack = (char *) malloc(STACK_SIZE);
+    tcb->stack = (char *) malloc(STACK_SIZE);
 
     // sp starts out at the top of the stack, pc at the wrapper function.
-    auto sp = (address_t) stack + STACK_SIZE - 10 * sizeof(void *);
+    auto sp = (address_t) tcb->stack + STACK_SIZE - 10 * sizeof(void *);
     auto pc = (address_t) thread_wrapper;
 
     // Modify the env_buf with the thread context.
@@ -462,10 +474,11 @@ int uthread_terminate(int tid) {
         return 0; // Unreachable code.
     }
 
-    threads[tid].complete = true;
+
 
     remove(ready_list, tid) || remove(waiting_list, tid) || remove(suspended_list, tid);
-    free_waiting_threads(tid);
+    set_complete(tid);
+
 
     enable_interrupts();
     return 0;
