@@ -419,7 +419,7 @@ int uthread_terminate(int tid) {
  */
 int uthread_init(int time_slice) {
     timer.it_interval.tv_usec = time_slice;
-    return 0;
+    return setitimer(ITIMER_VIRTUAL, &timer, nullptr);
 }
 
 /**
