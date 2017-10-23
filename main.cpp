@@ -674,6 +674,8 @@ void* test_async(){
     start();
     assert(reinterpret_cast<long>(threads[tid].result) == 100);
 }
+
+// Test that flow control will move between blocking threads via the timer.
 void test_timing() {
     uthread_create(test_timing_fixture, nullptr);
     start();
