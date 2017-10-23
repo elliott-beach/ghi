@@ -1,0 +1,105 @@
+################################## uthread API ###########################################
+
+CSCI 5103 Fall 2017 Project 1
+Names: Kevin Stowe, Elliott Beach
+
+##########################################################################################
+
+a. We made the following assumptions:
+      1. The maximum stack space a thread can use is 4096 bytes.
+      2. The maximum number of threads that can run is 1000.
+      3. Any thread that the user calls to be resumed, is not currently waiting.
+
+
+b. uthread API
+   	   uthread_create(start_routine, arg)
+	   	Creates a user-level thread to run the function "start_routine" with the
+		argument "arg", where arg is a void pointer. On success, it will return
+		the thread id of the newly created thread. On error, it will return -1.
+
+	   uthread_yield()
+		Stops the execution of the calling thread and begins executing a
+		different thread. 
+
+	   uthread_self()
+		Returns the thread id of the calling thread.
+
+	   uthread_join(tid, retval)
+		Causes the calling thread to wait for the thread specified by the id "tid".
+		If "retval" is not null, the value that target thread returns is copied
+		into the location pointed to by "*retval". If the thread specified by "tid"
+		has already completed, uthread_join will return immediately.
+
+	   uthread_init(time_slice)
+		Changes the time slice that each thread gets to run for to "time_slice",
+		where "time_slice" is measured in microseconds. On success, 0 is returned.
+		On error, -1 is returned.
+
+	   uthread_terminate(tid)
+		Terminates execution of the thread specified by "tid".
+		On success 0 is returned. On error, -1 is returned.
+
+	   uthread_suspend(tid)
+		Suspends the execution of the thread specified by "tid". The target thread
+		can no longer execute until there is a corresponding call to
+		uthread_resume(). On success 0 is returned. On error, -1 is returned.
+
+	   uthread_resume(tid)
+		Resumes the execution of a suspended thread, specified by "tid". The target
+		thread that is resumed is not guaranteed to run immediately. On success,
+		0 is returned. On error, -1 is returned.
+
+	   async_read(fildes, buf, nbytes)
+	   	Reads "nbytes" bytes from the file specified by "fildes" into the buffer
+		pointed to by buf. The function will yield itself if the read has not
+		completed yet. On success, the number of bytes that were read is returned.
+		On failure, -1 is returned.
+
+c. None
+
+d. Both the input parameter and the return value of a thread routine are placed in that
+   thread's TCB in the uthread_create(). The thread entry function can access the input
+   parameter from the TCB and pass it to the thread routine. The thread routine will return
+   to the thread entry function and the thread entry function will copy its return value
+   into the TCB so it can be accessed by other threads.
+    
+e. Context switches are implemented by using sigsetjmp() and siglongjmp(). Whenever a context
+   switch is about to be performed (e.g. in uthread_yield) the context of the running thread
+   is saved with a call to sigsetjmp(). When a new thread is chosen to run, siglongjmp() is
+   called to restore that new thread's context and allow it to continue execution where it
+   last left off.
+
+f. Since the process must pay an overhead every time it performs a context switch, for time
+   slices that are very short, a large amount of the processor's time will be spent on the
+   overhead of performing context switches. This detracts from the time that the processor
+   is actually making progress on each thread, thus hurting performance.
+   On the other hand, if the time slice is too long, the concurrency of process will suffer.
+   Some threads will have to wait a long time before they execute. An example of a situation
+   where a long time slice can hurt performance is if a thread blocks without yielding itself.
+   Since the blocked thread cannot be pre-empted until the quantum expires, other threads will
+   be unable to make progress during the block.
+
+g. The critcal sections of the code is any section that contains a shared resource including
+   the ready list, waiting list, suspended list, TCB list, or num_threads. These sections
+   need to be protected against interrupts because other threads may modify them, changing
+   their meaning, or falsify some invariant condition . For example, if a thread A calls
+   thread_join, it will prepare itself to wait on thread B by putting itself on the waiting
+   list and taking a new thread off the ready list. If thread B is chosen is taken off the
+   ready list, but then A is interrupted before it performs the context switch, deadlock
+   will ensue. Thread B is no longer on the ready list and thus can only execute if A begins
+   running again. However, A is waiting on B and can never start running again until B
+   finishes, thus causing the deadlock.
+
+h. n/a
+
+i. We implemented asynchronous I/O through polling. When a read is performed, the thread will
+   check to see if the I/O has completed.  If it has not, the thread yields itself to allow
+   other threads to run. Each time this blocked thread is later scheduled and executed, it will
+   check to see whether the I/O has completed and will either yield itself or return based on
+   the status of the I/O.
+
+j. Each thread is allowed to have its own signal mask. This is guaranteed by the use of
+   sigsetjmp/siglongjmp in performing the context switches. When a thread calls sigsetjmp()
+   its signal mask will be saved as a part of its execution context. Later when siglongjmp()
+   is called and the execution context is restored, the signal mask will be restored to what
+   it was when sigsetjmp() was called, effectively giving each thread its own signal mask.
