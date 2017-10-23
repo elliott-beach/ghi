@@ -169,8 +169,8 @@ int main() {
     test_thread_self();
     test_uthread_create();
     test_uthread_join();
-    test_uthread_suspend();
     test_join_invalid_tid();
+    test_uthread_suspend();
     test_async();
     test_timing();
     test_terminate();
