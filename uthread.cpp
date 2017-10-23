@@ -13,12 +13,10 @@
 
 #define STACK_SIZE 4096
 
-
 /**
  * Global thread state.
  */
 TCB threads[MAX_THREADS];
-
 
 /**
  * Jump buff for returning to main environment.
@@ -188,6 +186,7 @@ void enable_interrupts() {
  * Completes a thread's execution. adds to the ready list.
  */
 void thread_complete() {
+    printf("setting thread complete\n");
 
     disable_interrupts();
 
@@ -198,6 +197,7 @@ void thread_complete() {
     }
 
     set_complete(current_thread_id);
+    printf("set complete\n");
 
     // If all threads have complete execution
     if (ready_list.empty()) {
@@ -205,11 +205,15 @@ void thread_complete() {
         finish();
     }
 
+    printf("now here\n");
+
     // Choose the first thread on the ready list
     current_thread_id = ready_list.front();
     ready_list.pop_front();
 
     enable_interrupts();
+
+    printf("jumping %d\n", current_thread_id);
 
     siglongjmp(threads[current_thread_id].env, 1);
 }
@@ -223,8 +227,10 @@ void thread_switch() {
 
     disable_interrupts();
 
+    printf("switching from %d\n", current_thread_id);
     int ret_val = sigsetjmp(threads[current_thread_id].env, 1);
     if (ret_val == 1) {
+        printf("switched to %d\n", current_thread_id);
         enable_interrupts();
         return;
     }
@@ -256,7 +262,9 @@ void thread_switch() {
 void thread_wrapper(void *arg) {
     TCB *tcb = &threads[current_thread_id];
     tcb->result = tcb->function(tcb->arg);
+    printf("called function\n");
     thread_complete();
+    printf("completed thread\n");
 }
 
 /*
@@ -343,7 +351,9 @@ int uthread_join(int tid, void **retval) {
     if (tid == current_thread_id || threads[tid].complete) return 0;
     threads[current_thread_id].waiting_for_tid = tid;
     thread_switch();
+    printf("setting retval\n");
     *retval = threads[tid].result;
+    printf("set retval\n");
     return 0;
 }
 
