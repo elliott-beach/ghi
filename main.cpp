@@ -77,6 +77,21 @@ bool valid_tid(int tid){
     return 0 <= tid && tid < num_threads;
 }
 
+/**
+ * Remove an id from a queue of items.
+ * @param items - The queue of items.
+ * @param id - The id to remove.
+ * @return true if the item was removec, else false.
+ */
+bool remove(std::deque<int> items, int num){
+    std::deque<int>::iterator it;
+    if((it = find(items.begin(), items.end(), num)) != items.end()) {
+	items.erase(it);
+        return true;
+    }
+    return false;
+}
+
 
 /* A translation is required when using an address of a variable.
     Use this as a black box in your code. */
@@ -170,7 +185,7 @@ void free_waiting_threads(int tid) {
 	}
 	++it;
     }
-    
+
 }
 
 /**
@@ -441,9 +456,12 @@ int uthread_suspend(int tid) {
     return 0;
 }
 
+
+
 /**
  * Terminate a thread by setting it to complete
  * @param tid - the tid of the thread needing to be terminated
+ * @return 0 if termination was successful, -1 if tid was not valid.
  */
 int uthread_terminate(int tid) {
 
@@ -451,19 +469,16 @@ int uthread_terminate(int tid) {
 
     disable_interrupts();
 
-    threads[tid].complete = true;
-
-    std::deque<int>::iterator it;
-    if((it = find(ready_list.begin(), ready_list.end(), tid)) != ready_list.end()) {
-	ready_list.erase(it);
-    } else if((it = find(waiting_list.begin(), waiting_list.end(), tid)) != waiting_list.end()) {
-	waiting_list.erase(it);
-    } else {
-	enable_interrupts();
-	thread_complete();  // If tid is the running thread
-	return 0;
+    if(tid == current_thread_id) {
+        // We could enable interrupts here, but it is safer to not,
+        // and thread_complete will disable interrupts immediatly anyway.
+        thread_complete();
+        return 0; // Unreachable code.
     }
 
+    threads[tid].complete = true;
+
+    remove(ready_list, tid) || remove(waiting_list, tid) || remove(suspended_list, tid);
     free_waiting_threads(tid);
 
     enable_interrupts();
