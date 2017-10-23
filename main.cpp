@@ -392,10 +392,9 @@ void start(){
 /*  Unit Tests and Fixtures       */
 ///////////////////////////////////
 
-
 // Fixtures
 
-void* uthread_test_fixture(void *arg){
+void* uthread_argument_fixture(void *arg){
     assert((long)arg == 10);
     return 0;
 }
@@ -408,6 +407,11 @@ void* uthread_yield_fixture(void *arg){
         }
         printf("%d\n", i);
     }
+    return 0;
+}
+
+void* yield_fixture(void *arg){
+    uthread_yield();
     return 0;
 }
 
@@ -430,33 +434,26 @@ void* uthread_join_fixture(void *arg){
     return 0;
 }
 
-void* front_yield_end_fixture(void *arg){
-    printf("FRONT\n");
+void* nop_fixture(void *arg){}
+
+void* uthread_suspend_fixture(void *arg) {
+    int tid = uthread_create(nop_fixture, nullptr);
+    uthread_suspend(tid);
     uthread_yield();
-    printf("END\n");  // This should print last
+    assert(!threads[tid].complete);
+    uthread_resume(tid);
+    uthread_yield();
+    assert(threads[tid].complete);
 }
 
-// Tests
-
-// Test that creating a uthread can start a thread.
-void test_uthread_create(){
-    uthread_create(uthread_test_fixture, (void *) 10l);
-    start();
-}
-
-// Create 5 threads that count form 0 to 5, then yield, then
-// count from 0 to 5 once more.
-void test_thread_yield(){
-    for(int i=0;i<5;i++){
-        uthread_create(uthread_yield_fixture, nullptr);
-    }
-}
-
-// Test that creating a thread and calling
-// `uthread_start` gives the expected result.
-void test_thread_self(){
-    uthread_create(uthread_self_fixture, nullptr);
-    start();
+void* async_read_fixture(void *arg){
+    char buf [1024];
+    int tid1 = uthread_create(yield_fixture, nullptr);
+    int tid2 = uthread_create(yield_fixture, nullptr);
+    ssize_t result = async_read(open("/etc/passwd", O_RDONLY), &buf, 100);
+    assert(threads[tid1].complete);
+    assert(threads[tid2].complete);
+    return reinterpret_cast<void *>(result);
 }
 
 // Test that we cannot join on an invalid tid.
@@ -466,6 +463,29 @@ void* uthread_join_invalid_tid_fixture(void *arg){
     assert(ret != 0);
 }
 
+void* test_uthread_yield_fixture(void* arg){
+    int tid = uthread_create(uthread_self_fixture, nullptr);
+    assert(!threads[tid].complete);
+    uthread_yield();
+    assert(threads[tid].complete);
+}
+
+// Tests
+
+// Test that creating a uthread can start a thread, passing
+// an argument.
+void test_uthread_create(){
+    uthread_create(uthread_argument_fixture, (void *) 10l);
+    start();
+}
+
+// Test that creating a thread and calling
+// `uthread_start` gives the expected result.
+void test_thread_self(){
+    uthread_create(uthread_self_fixture, nullptr);
+    start();
+}
+
 // Test that creating a thread and joining captures
 // the return value of the thread.
 void test_uthread_join(){
@@ -473,46 +493,34 @@ void test_uthread_join(){
     start();
 }
 
-void* yield_wrapper(void* arg){
-    test_thread_yield();
-}
-
-void* uthread_suspend_test_function(void* arg) {
-    int tid = uthread_create(front_yield_end_fixture, nullptr);
-    uthread_yield();
-    uthread_suspend(tid);
-    uthread_yield();
-    printf("MIDDLE\n");
-    uthread_resume(tid);
-}
-
-void test_thread_suspend_resume() {
-    uthread_create(uthread_suspend_test_function, nullptr);
-}
-
-void* async_test_function(void* arg){
-    char buf [1024];
-    uthread_create(uthread_yield_fixture, nullptr);
-    uthread_create(uthread_yield_fixture, nullptr);
-    uthread_create(uthread_yield_fixture, nullptr);
-    async_read(open("/etc/passwd", O_RDONLY), &buf, 100);
-}
-
-void test_uthread_suspend() {
-    uthread_create(yield_wrapper, nullptr);
-    test_thread_suspend_resume();
+// Test that yielding causes another thread to run before the next
+// statement.
+void test_uthread_yield(){
+    uthread_create(test_uthread_yield_fixture, nullptr);
     start();
 }
 
+// Test that joining a thread on an invalid tid does not cause
+// the joining thread to block forever.
 void* test_join_invalid_tid(){
     int id = uthread_create(uthread_join_invalid_tid_fixture, nullptr);
     start();
     assert(threads[id].complete);
 }
 
-void* test_async(){
-    uthread_create(async_test_function, nullptr);
+// Test that suspending a thread causes it to leave
+// the ready list and not execute while other threads run.
+void test_uthread_suspend() {
+    uthread_create(uthread_suspend_fixture, nullptr);
     start();
+}
+
+// Test that reading asynchronously succeeds but completes
+// after letting other threads finish.
+void* test_async(){
+    int tid = uthread_create(async_read_fixture, nullptr);
+    start();
+    assert(reinterpret_cast<long>(threads[tid].result) == 100);
 }
 
 int main(){
