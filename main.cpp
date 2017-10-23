@@ -118,7 +118,7 @@ void set_complete(int tid){
  * @param id - The id to remove.
  * @return true if the item was removec, else false.
  */
-bool remove(std::deque<int> items, int num) {
+bool remove(std::deque<int> &items, int num) {
     std::deque<int>::iterator it;
     if ((it = find(items.begin(), items.end(), num)) != items.end()) {
         items.erase(it);
@@ -392,25 +392,22 @@ ssize_t async_read(int fildes, void *buf, size_t nbytes) {
  * @param tid - The tid needed to be resumed
  */
 int uthread_resume(int tid) {
-
     if (!valid_tid(tid)) return -1;
+    disable_interrupts();
 
-    enable_interrupts();
-
-    std::deque<int>::iterator it;
     // Verify that tid is currently suspended
-    if ((it = find(suspended_list.begin(), suspended_list.end(), tid)) != suspended_list.end()) {
-        suspended_list.erase(it);
-        if (threads[tid].waiting_for_tid == -1)
+    if (remove(suspended_list, tid)) {
+        if (threads[tid].waiting_for_tid == -1){
             ready_list.push_back(tid);
-        else
+        } else {
             waiting_list.push_back(tid);
+        }
         enable_interrupts();
         return 0;
     }
 
     enable_interrupts();
-    // If it wasn't suspended return an error
+    // If it wasn't suspended, return an error.
     return -1;
 }
 
@@ -418,11 +415,12 @@ int uthread_resume(int tid) {
  * Suspend a thread by adding it to the suspended list. Return -1 if tid is invalid or
  * tid is already suspended or complete
  * @param - The tid of the thread needed to be suspended
+ * @return 0, if thread was successfully suspend, else -1.
  */
 int uthread_suspend(int tid) {
-    // Verify that tid is valid
     if (!valid_tid(tid)) return -1;
     disable_interrupts();
+
     // If tid is complete it can't be suspended
     if (threads[tid].complete) {
         enable_interrupts();
@@ -436,22 +434,18 @@ int uthread_suspend(int tid) {
         return 0;
     }
 
-    std::deque<int>::iterator it;
-
-    // Check if the tid trying to be suspended is in the ready list or the waiting list
-    if ((it = find(ready_list.begin(), ready_list.end(), tid)) != ready_list.end()) {
-        ready_list.erase(it);
+    // Check if the tid trying to be suspended is in the ready list or the waiting list.
+    if(remove(ready_list, tid)){
         suspended_list.push_back(tid);
-    } else if ((it = find(waiting_list.begin(), waiting_list.end(), tid)) != waiting_list.end()) {
-        waiting_list.erase(it);
+    } else if(remove(waiting_list, tid)){
         suspended_list.push_back(tid);
     } else {
+        // tid is already suspended
         enable_interrupts();
-        return -1;  // Handles case if tid is already suspended
+        return -1;
     }
 
     enable_interrupts();
-
     return 0;
 }
 
