@@ -1,5 +1,9 @@
 // From http://www-users.cselabs.umn.edu/classes/Fall-2017/csci5103/PROJECT/PROJECT1/sigjmp-demo.c.
 
+#include <aio.h>
+#include <errno.h>
+#include <fcntl.h>
+
 #include <assert.h>
 #include <stdio.h>
 #include <setjmp.h>
@@ -30,6 +34,12 @@ struct TCB {
  */
 TCB threads[1000];
 
+
+/**
+ * Jump buff for returning to main environment.
+ */
+sigjmp_buf main_env;
+
 /**
  * Total number of created threads.
  */
@@ -54,6 +64,34 @@ struct sigaction sa;
 struct itimerval timer;
 
 void uthread_yield();
+
+void test_uthread_suspend();
+
+void test_timing();
+
+void finish(){
+    siglongjmp(main_env, 1);
+}
+
+bool valid_tid(int tid){
+    return 0 <= tid && tid < num_threads;
+}
+
+/**
+ * Remove an id from a queue of items.
+ * @param items - The queue of items.
+ * @param id - The id to remove.
+ * @return true if the item was removec, else false.
+ */
+bool remove(std::deque<int> items, int num){
+    std::deque<int>::iterator it;
+    if((it = find(items.begin(), items.end(), num)) != items.end()) {
+	items.erase(it);
+        return true;
+    }
+    return false;
+}
+
 
 /* A translation is required when using an address of a variable.
     Use this as a black box in your code. */
@@ -120,7 +158,7 @@ void enable_interrupts() {
 	perror("Failed to intialize signal set");
 	exit(0);
     }
-	
+
     // Unblock interrupts
     if(sigprocmask(SIG_UNBLOCK, &blockmask, nullptr) == -1) {
 	perror("Failed to unblock interrupt");
@@ -140,13 +178,14 @@ void free_waiting_threads(int tid) {
     std::deque<int>::iterator end = waiting_list.end();
     while(it != end) {
 	int id = *it;
-	if(threads[id].waiting_for_tid = tid) {
-	    threads[id].waiting_for_tid == -1;
+	if(threads[id].waiting_for_tid == tid) {
+	    threads[id].waiting_for_tid = -1;
 	    waiting_list.erase(it);
 	    ready_list.push_back(id);
 	}
 	++it;
     }
+
 }
 
 /**
@@ -155,7 +194,7 @@ void free_waiting_threads(int tid) {
 void thread_complete(){
 
     disable_interrupts();
-    
+
     int ret_val = sigsetjmp(threads[current_thread_id].env,1);
     if (ret_val == 1) {
 	enable_interrupts();
@@ -170,7 +209,8 @@ void thread_complete(){
 
     // If all threads have complete execution
     if(ready_list.empty()) {
-	exit(0);
+        enable_interrupts();
+	    finish();
     }
 
     // Choose the first thread on the ready list
@@ -178,7 +218,7 @@ void thread_complete(){
     ready_list.pop_front();
 
     enable_interrupts();
-    
+
     siglongjmp(threads[current_thread_id].env,1);
 }
 
@@ -198,11 +238,15 @@ void thread_wrapper(void *arg){
  * Create a new uthread.
  * @param start_routine - The function that should be executed in the thread.
  * @param arg - An argument to pass to the function.
- * @return The tid of the created thread.
+ * @return The tid of the created thread, or -1 if there were too many threads.
  */
 int uthread_create(void *(start_routine)(void *), void* arg){
 
     disable_interrupts();
+    if(num_threads >= 999){
+        enable_interrupts();
+        return -1;
+    }
 
     int tid = num_threads;
     TCB* tcb = &threads[tid];
@@ -231,7 +275,7 @@ int uthread_create(void *(start_routine)(void *), void* arg){
     num_threads++;
 
     enable_interrupts();
-    
+
     return tid;
 }
 
@@ -264,7 +308,6 @@ void uthread_yield(){
 
     enable_interrupts();
 
-    printf("Thread about to run: %d\n", current_thread_id);
     siglongjmp(threads[current_thread_id].env,1);
 }
 
@@ -287,7 +330,8 @@ void thread_switch(){
 
     // Deadlock
     if(ready_list.empty()) {
-	exit(0);
+        enable_interrupts();
+	   finish();
     }
 
     // Take the top thread off the ready list
@@ -295,7 +339,7 @@ void thread_switch(){
     ready_list.pop_front();
 
     enable_interrupts();
-    
+
     siglongjmp(threads[current_thread_id].env,1);
 }
 
@@ -303,7 +347,15 @@ int uthread_self(){
     return current_thread_id;
 }
 
+/**
+ * Join against another thread.
+ * @param tid The tid of the thread to join on.
+ * @param retval A pointer which will be set to the return value of the thread.
+ * @return 0 if join was successful, false if tid did not represent a valid thread.
+ */
 int uthread_join(int tid, void **retval){
+    if(!valid_tid(tid)) return -1;
+    if(tid == current_thread_id || threads[tid].complete) return 0;
     threads[current_thread_id].waiting_for_tid = tid;
     thread_switch();
     *retval = threads[tid].result;
@@ -311,16 +363,41 @@ int uthread_join(int tid, void **retval){
 }
 
 /**
+ * Attmpt to read nbytes bytes from file for file descriptor fildes, into the buffer pointed to by buff.
+ * @param fildes The file descriptor to read from.
+ * @param buf The buffer to read into.
+ * @param nbytes Number of bytes to read.
+ */
+ssize_t async_read(int fildes, void *buf, size_t nbytes){
+    struct aiocb params{};
+    params.aio_fildes = fildes;
+    params.aio_buf = buf;
+    params.aio_nbytes = nbytes;
+    if(aio_read(&params) != 0) return -1;
+    while(true){
+        switch(aio_error(&params)){
+            case EINPROGRESS:
+                uthread_yield();
+                continue;
+            case ECANCELED:
+                errno = ECANCELED;
+                return -1;
+            default:
+                return aio_return(&params);
+        }
+    }
+}
+
+/**
  * Resume a suspended thread. Returns -1 on if tid is invalid or tid was not suspended
  * @param tid - The tid needed to be resumed
  */
 int uthread_resume(int tid) {
-    // Verify that tid is valid
-    if(tid >= num_threads || tid < 0)
-	return -1;
 
-    disable_interrupts();
-    
+    if(!valid_tid(tid)) return -1;
+
+    enable_interrupts();
+
     std::deque<int>::iterator it;
     // Verify that tid is currently suspended
     if((it = find(suspended_list.begin(), suspended_list.end(), tid)) != suspended_list.end()) {
@@ -345,14 +422,12 @@ int uthread_resume(int tid) {
  */
 int uthread_suspend(int tid) {
     // Verify that tid is valid
-    if(tid >= num_threads || tid < 0)
-	return -1;
-
+    if(!valid_tid(tid)) return -1;
     disable_interrupts();
-    
     // If tid is complete it can't be suspended
     if(threads[tid].complete) {
-	return -1;
+        enable_interrupts();
+        return -1;
     }
 
     // If a thread tries to suspend itself
@@ -381,32 +456,29 @@ int uthread_suspend(int tid) {
     return 0;
 }
 
+
+
 /**
  * Terminate a thread by setting it to complete
  * @param tid - the tid of the thread needing to be terminated
+ * @return 0 if termination was successful, -1 if tid was not valid.
  */
 int uthread_terminate(int tid) {
-    
-    // Verify that tid is valid
-    if(tid >= num_threads || tid < 0) {
-	return -1;
-    }
+
+    if(!valid_tid(tid)) return -1;
 
     disable_interrupts();
-    
-    threads[tid].complete = true;
 
-    std::deque<int>::iterator it;
-    if((it = find(ready_list.begin(), ready_list.end(), tid)) != ready_list.end()) {
-	ready_list.erase(it);
-    } else if((it = find(waiting_list.begin(), waiting_list.end(), tid)) != waiting_list.end()) {
-	waiting_list.erase(it);
-    } else {
-	enable_interrupts();
-	thread_complete();  // If tid is the running thread
-	return 0;
+    if(tid == current_thread_id) {
+        // We could enable interrupts here, but it is safer to not,
+        // and thread_complete will disable interrupts immediatly anyway.
+        thread_complete();
+        return 0; // Unreachable code.
     }
 
+    threads[tid].complete = true;
+
+    remove(ready_list, tid) || remove(waiting_list, tid) || remove(suspended_list, tid);
     free_waiting_threads(tid);
 
     enable_interrupts();
@@ -415,11 +487,11 @@ int uthread_terminate(int tid) {
 
 /**
  * Sets the time slice for how long each thread runs
- * @param time_slice - the new time slice for each thread in microseconds 
+ * @param time_slice - the new time slice for each thread in microseconds
  */
 int uthread_init(int time_slice) {
     timer.it_interval.tv_usec = time_slice;
-    return setitimer(ITIMER_VIRTUAL, &timer, nullptr);
+    return 0;
 }
 
 /**
@@ -427,7 +499,7 @@ int uthread_init(int time_slice) {
  */
 void timer_handler(int signum) {
     static int count = 0;
-    printf("Timer expired: %d\n", ++count);
+    count++;
     uthread_yield();
 }
 
@@ -441,7 +513,7 @@ int setupitimer(void) {
     return setitimer(ITIMER_VIRTUAL, &timer, nullptr);
 }
 
-/** 
+/**
  * Set up interrupt handler
  */
 int setupinterrupt(void) {
@@ -454,14 +526,17 @@ int setupinterrupt(void) {
  * Start the threading library.
  */
 void start(){
-    
+    if(sigsetjmp(main_env,1) != 0){
+        return;
+    }
+
     if(setupinterrupt() == -1) {
 	perror("Failed to set up handler");
     }
     if(setupitimer() == -1) {
 	perror("Failed to set up timer");
     }
-    
+
     current_thread_id = ready_list.front();
     ready_list.pop_front();
     siglongjmp(threads[current_thread_id].env,1);
@@ -471,15 +546,15 @@ void start(){
 /*  Unit Tests and Fixtures       */
 ///////////////////////////////////
 
-void* uthread_test_function(void* arg){
+// Fixtures
+
+void* uthread_argument_fixture(void *arg){
     assert((long)arg == 10);
-    for(int i=0;i<100;i++){
-        printf("%d\n", i);
-    }
     return 0;
 }
-void* uthread_yield_test_function(void* arg){
-    int limit = 100;
+
+void* uthread_yield_fixture(void *arg){
+    int limit = 5;
     for(int i=0;i<2*limit;i++){
         if(i % limit == 0){
             uthread_yield();
@@ -489,7 +564,12 @@ void* uthread_yield_test_function(void* arg){
     return 0;
 }
 
-void* uthread_self_test_function(void* arg){
+void* yield_fixture(void *arg){
+    uthread_yield();
+    return 0;
+}
+
+void* uthread_self_fixture(void *arg){
     static int id = 0;
     assert(uthread_self()==id);
     id++;
@@ -500,101 +580,131 @@ void* return_10_fixture(void* arg){
    return (void*)10l;
 }
 
-void* uthread_join_test(void* arg){
-    uthread_create(return_10_fixture, nullptr);
-}
-
-void* f(void * arg){
-    assert((long)arg == 10);
-    printf("argument: %ld\n", (long)arg);
-    int i=0;
-    while(1) {
-        ++i;
-        printf("in f (%d)\n",i);
-        if(i % 5 == 0){
-        }
-        if (i % 3 == 0) {
-            printf("f: switching\n");
-            uthread_yield();
-        }
-        usleep(SECOND);
+void* test_timing_fixture(void* arg){
+    int limit = 5;
+    static int i = 0;
+    i++;
+    if (i < limit){
+        uthread_create(test_timing_fixture, nullptr);
+        // If we can get through this while loop, timing is working.
+        while(i < limit)
+            ;
     }
     return 0;
 }
 
-void* g(void * arg){
-    printf("&arg: %p\n", &arg);
-    printf("arg: 0x%lx\n", (long)arg);
-    int i=0;
-    while(1){
-        ++i;
-        printf("in g (%d)\n",i);
-        if (i % 5 == 0) {
-            printf("g: switching\n");
-            uthread_yield();
-        }
-        usleep(SECOND);
-    }
-    return 0;
-}
-
-void test_uthread_create(){
-    uthread_create(uthread_test_function, (void*)10l);
-}
-
-// Create 10 threads, and check that they alternate between eachother
-void test_thread_yield(){
-    uthread_create(uthread_yield_test_function, nullptr);
-    uthread_create(uthread_yield_test_function, nullptr);
-    uthread_create(uthread_yield_test_function, nullptr);
-    uthread_create(uthread_yield_test_function, nullptr);
-    uthread_create(uthread_yield_test_function, nullptr);
-}
-
-void test_thread_self(){
-    uthread_create(uthread_self_test_function, nullptr);
-}
-
-void* uthread_join_test_function(void* arg){
+void* uthread_join_fixture(void *arg){
     void* retval;
-    uthread_join(uthread_create(return_10_fixture, nullptr), &retval);
+    int tid = uthread_create(return_10_fixture, nullptr);
+    uthread_join(tid, &retval);
     assert((long)retval == 10l);
-    return nullptr;
+    return 0;
 }
 
-void test_uthread_join(){
-    uthread_create(uthread_join_test_function, nullptr);
-}
+void* nop_fixture(void *arg){}
 
-void* yield_wrapper(void* arg){
-    test_thread_yield();
-}
-
-void* do_something(void* arg){
-    printf("FRONT\n");
-    uthread_yield();
-    printf("END\n");  // This should print last
-}
-
-void* uthread_suspend_test_function(void* arg) {
-    int tid = uthread_create(do_something, nullptr);
-    uthread_yield();
+void* uthread_suspend_fixture(void *arg) {
+    int tid = uthread_create(nop_fixture, nullptr);
     uthread_suspend(tid);
     uthread_yield();
-    printf("MIDDLE\n");
+    assert(!threads[tid].complete);
     uthread_resume(tid);
+    uthread_yield();
+    assert(threads[tid].complete);
 }
 
-void test_thread_suspend_resume() {
-    uthread_create(uthread_suspend_test_function, nullptr);
+void* async_read_fixture(void *arg){
+    char buf [1024];
+    int tid1 = uthread_create(yield_fixture, nullptr);
+    int tid2 = uthread_create(yield_fixture, nullptr);
+    ssize_t result = async_read(open("/etc/passwd", O_RDONLY), &buf, 100);
+    assert(threads[tid1].complete);
+    assert(threads[tid2].complete);
+    return reinterpret_cast<void *>(result);
+}
+
+// Test that we cannot join on an invalid tid.
+void* uthread_join_invalid_tid_fixture(void *arg){
+    void* retval;
+    int ret = uthread_join(-1, &retval);
+    assert(ret != 0);
+}
+
+void* test_uthread_yield_fixture(void* arg){
+    int tid = uthread_create(uthread_self_fixture, nullptr);
+    assert(!threads[tid].complete);
+    uthread_yield();
+    assert(threads[tid].complete);
+}
+
+// Tests
+
+// Test that creating a uthread can start a thread, passing
+// an argument.
+void test_uthread_create(){
+    uthread_create(uthread_argument_fixture, (void *) 10l);
+    start();
+}
+
+// Test that creating a thread and calling
+// `uthread_start` gives the expected result.
+void test_thread_self(){
+    uthread_create(uthread_self_fixture, nullptr);
+    start();
+}
+
+// Test that creating a thread and joining captures
+// the return value of the thread.
+void test_uthread_join(){
+    uthread_create(uthread_join_fixture, nullptr);
+    start();
+}
+
+// Test that yielding causes another thread to run before the next
+// statement.
+void test_uthread_yield(){
+    uthread_create(test_uthread_yield_fixture, nullptr);
+    start();
+}
+
+// Test that joining a thread on an invalid tid does not cause
+// the joining thread to block forever.
+void* test_join_invalid_tid(){
+    int id = uthread_create(uthread_join_invalid_tid_fixture, nullptr);
+    start();
+    assert(threads[id].complete);
+}
+
+// Test that suspending a thread causes it to leave
+// the ready list and not execute while other threads run.
+void test_uthread_suspend() {
+    uthread_create(uthread_suspend_fixture, nullptr);
+    start();
+}
+
+// Test that reading asynchronously succeeds but completes
+// after letting other threads finish.
+void* test_async(){
+    int tid = uthread_create(async_read_fixture, nullptr);
+    start();
+    assert(reinterpret_cast<long>(threads[tid].result) == 100);
+}
+
+// Test that flow control will move between blocking threads via the timer.
+void test_timing() {
+    uthread_create(test_timing_fixture, nullptr);
+    start();
 }
 
 int main(){
     test_thread_self();
     test_uthread_create();
     test_uthread_join();
-    uthread_create(yield_wrapper, nullptr);
-    test_thread_suspend_resume();
-    start();
+    test_uthread_suspend();
+    test_join_invalid_tid();
+    test_async();
+    printf("All tests passed.\n");
+    test_timing();
     return 0;
 }
+
