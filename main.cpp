@@ -226,7 +226,6 @@ void thread_complete() {
 void thread_wrapper(void *arg) {
     TCB *tcb = &threads[current_thread_id];
     tcb->result = tcb->function(tcb->arg);
-
     thread_complete();
 }
 
@@ -239,6 +238,8 @@ void thread_wrapper(void *arg) {
 int uthread_create(void *(start_routine)(void *), void *arg) {
 
     disable_interrupts();
+
+    // We support a limited number of threads.
     if (num_threads >= 999) {
         enable_interrupts();
         return -1;
