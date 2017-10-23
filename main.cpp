@@ -138,10 +138,10 @@ void disable_interrupts() {
     sigset_t blockmask;
     if ((sigemptyset(&blockmask) == -1) || (sigaddset(&blockmask, SIGVTALRM) == -1)) {
         perror("Failed to initialize signal set");
-        exit(0);
+        exit(1);
     } else if (sigprocmask(SIG_BLOCK, &blockmask, nullptr) == -1) {
         perror("Failed to block interrupt");
-        exit(0);
+        exit(1);
     }
 }
 
@@ -152,13 +152,13 @@ void enable_interrupts() {
     sigset_t blockmask;
     if ((sigemptyset(&blockmask) == -1) || (sigaddset(&blockmask, SIGVTALRM) == -1)) {
         perror("Failed to intialize signal set");
-        exit(0);
+        exit(1);
     }
 
     // Unblock interrupts
     if (sigprocmask(SIG_UNBLOCK, &blockmask, nullptr) == -1) {
         perror("Failed to unblock interrupt");
-        exit(0);
+        exit(1);
     }
 }
 
