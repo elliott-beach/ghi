@@ -319,7 +319,7 @@ int uthread_resume(int tid) {
     if(tid >= num_threads || tid < 0)
 	return -1;
 
-    enable_interrupts();
+    disable_interrupts();
     
     std::deque<int>::iterator it;
     // Verify that tid is currently suspended
