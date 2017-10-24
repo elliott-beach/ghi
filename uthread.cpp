@@ -53,12 +53,36 @@ void test_uthread_suspend();
 
 void test_timing();
 
+/**
+ * Removes the block on SIGVTALRM
+ */
+void enable_interrupts() ;
+
+/**
+ * Blocks SIGVTALRM interrupts
+ */
+void disable_interrupts() ;
+
 void finish() {
     siglongjmp(main_env, 1);
 }
 
 bool valid_tid(int tid) {
     return 0 <= tid && tid < num_threads;
+}
+
+int setJump(){
+    int ret = sigsetjmp(threads[current_thread_id].env, 1);
+    if(ret != 0){
+        enable_interrupts();
+    }
+    return ret;
+}
+
+int longJumpToTid(int tid){
+    disable_interrupts();
+    current_thread_id = tid;
+    siglongjmp(threads[tid].env, 1);
 }
 
 /**
@@ -209,11 +233,7 @@ void thread_complete() {
 
     disable_interrupts();
 
-    int ret_val = sigsetjmp(threads[current_thread_id].env, 1);
-    if (ret_val == 1) {
-        enable_interrupts();
-        return;
-    }
+    if(setJump()) return;
 
     set_complete(current_thread_id);
 
@@ -222,19 +242,17 @@ void thread_complete() {
         enable_interrupts();
         finish();
     }
-    
+
     int old_id = current_thread_id;
 
     // Choose the first thread on the ready list
+    int id;
     do{
-        current_thread_id = ready_list.front();
+        id = ready_list.front();
         ready_list.pop_front();
-    }while(threads[current_thread_id].complete);
+    }while(threads[id].complete);
 
-    enable_interrupts();
-    
-
-    siglongjmp(threads[current_thread_id].env, 1);
+    longJumpToTid(id);
 }
 
 
@@ -246,11 +264,7 @@ void thread_switch() {
 
     disable_interrupts();
 
-    int ret_val = sigsetjmp(threads[current_thread_id].env, 1);
-    if (ret_val == 1) {
-        enable_interrupts();
-        return;
-    }
+    if(setJump()) return;
 
     // Place calling thread on waiting list
     add_unique(waiting_list, current_thread_id);
@@ -262,12 +276,10 @@ void thread_switch() {
     }
 
     // Take the top thread off the ready list
-    current_thread_id = ready_list.front();
+    int tid = ready_list.front();
     ready_list.pop_front();
 
-    enable_interrupts();
-
-    siglongjmp(threads[current_thread_id].env, 1);
+    longJumpToTid(tid);
 }
 
 
@@ -334,21 +346,14 @@ void uthread_yield() {
     disable_interrupts();
 
     // Save execution state.
-    int ret_val = sigsetjmp(threads[current_thread_id].env, 1);
-    if (ret_val == 1) {
-        enable_interrupts();
-        return;
-    }
+    if(setJump()) return;
 
     // Choose the next thread to execute.
     add_unique(ready_list, current_thread_id);
 
-    current_thread_id = ready_list.front();
+    int tid = ready_list.front();
     ready_list.pop_front();
-
-    enable_interrupts();
-
-    siglongjmp(threads[current_thread_id].env, 1);
+    longJumpToTid(tid);
 }
 
 int uthread_self() {
@@ -536,8 +541,8 @@ void start() {
         perror("Failed to set up timer");
     }
 
-    current_thread_id = ready_list.front();
+    int id = ready_list.front();
     ready_list.pop_front();
-    siglongjmp(threads[current_thread_id].env, 1);
+    longJumpToTid(id);
 }
 
