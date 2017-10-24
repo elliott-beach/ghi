@@ -197,6 +197,8 @@ void thread_complete(){
 
     int ret_val = sigsetjmp(threads[current_thread_id].env,1);
     if (ret_val == 1) {
+	// Reset the quantum
+	setitimer(ITIMER_VIRTUAL, &timer, nullptr);
 	enable_interrupts();
 	return;
     }
@@ -296,6 +298,8 @@ void uthread_yield(){
     // Save execution state.
     int ret_val = sigsetjmp(threads[current_thread_id].env,1);
     if (ret_val == 1) {
+	// Reset the quantum
+	setitimer(ITIMER_VIRTUAL, &timer, nullptr);
 	enable_interrupts();
 	return;
     }
@@ -305,9 +309,6 @@ void uthread_yield(){
 
     current_thread_id = ready_list.front();
     ready_list.pop_front();
-
-    // Reset the quantum
-    if(setitimer(ITIMER_VIRTUAL, &timer, nullptr));
 
     enable_interrupts();
 
@@ -324,6 +325,8 @@ void thread_switch(){
 
     int ret_val = sigsetjmp(threads[current_thread_id].env,1);
     if (ret_val == 1) {
+	    // Reset the quantum
+	setitimer(ITIMER_VIRTUAL, &timer, nullptr);
 	enable_interrupts();
 	return;
     }
