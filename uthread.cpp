@@ -395,6 +395,32 @@ int uthread_resume(int tid) {
 }
 
 /**
+ * Attmpt to read nbytes bytes from file for file descriptor fildes, into the buffer pointed to by buff.
+ * @param fildes The file descriptor to read from.
+ * @param buf The buffer to read into.
+ * @param nbytes Number of bytes to read.
+ */
+ssize_t async_read(int fildes, void *buf, size_t nbytes) {
+    struct aiocb params{};
+    params.aio_fildes = fildes;
+    params.aio_buf = buf;
+    params.aio_nbytes = nbytes;
+    if (aio_read(&params) != 0) return -1;
+    while (true) {
+        switch (aio_error(&params)) {
+            case EINPROGRESS:
+                uthread_yield();
+                continue;
+            case ECANCELED:
+                errno = ECANCELED;
+                return -1;
+            default:
+                return aio_return(&params);
+        }
+    }
+}
+
+/**
  * Suspend a thread by adding it to the suspended list. Return -1 if tid is invalid or
  * tid is already suspended or complete
  * @param - The tid of the thread needed to be suspended
