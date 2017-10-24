@@ -206,7 +206,6 @@ void enable_interrupts() {
  * Completes a thread's execution. adds to the ready list.
  */
 void thread_complete() {
-    printf("setting thread complete %d\n", current_thread_id);
 
     disable_interrupts();
 
@@ -234,7 +233,6 @@ void thread_complete() {
 
     enable_interrupts();
     
-    printf("jumping to %d from %d\n", current_thread_id, old_id);
 
     siglongjmp(threads[current_thread_id].env, 1);
 }
@@ -248,10 +246,8 @@ void thread_switch() {
 
     disable_interrupts();
 
-    printf("switching from %d\n", current_thread_id);
     int ret_val = sigsetjmp(threads[current_thread_id].env, 1);
     if (ret_val == 1) {
-        printf("switched to %d\n", current_thread_id);
         enable_interrupts();
         return;
     }
@@ -283,9 +279,7 @@ void thread_switch() {
 void thread_wrapper(void *arg) {
     TCB *tcb = &threads[current_thread_id];
     tcb->result = tcb->function(tcb->arg);
-    printf("called function\n");
     thread_complete();
-    printf("completed thread\n");
 }
 
 /*
@@ -372,9 +366,7 @@ int uthread_join(int tid, void **retval) {
     if (tid == current_thread_id || threads[tid].complete) return 0;
     threads[current_thread_id].waiting_for_tid = tid;
     thread_switch();
-    printf("setting retval\n");
     *retval = threads[tid].result;
-    printf("set retval\n");
     return 0;
 }
 
