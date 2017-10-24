@@ -69,9 +69,7 @@ struct merge_params {
 void mergeSort(int arr[], int l, int r);
 
 void* merge_thread(void* arg){
-    printf("here\n");
     merge_params params = *(reinterpret_cast<merge_params*>(arg));
-    printf("there\n");
     mergeSort(params.arr, params.l, params.r);
     return 0;
 }
@@ -89,7 +87,6 @@ int uthread_merge(int* arr, int l, int r){
 /* l is for left index and r is right index of the
    sub-array of arr to be sortesd */
 void mergeSort(int* arr, int l, int r) {
-    printf("now mergeSort\n");
     if (l < r)
     {
         // Same as (l+r)/2, but avoids overflow for
@@ -100,14 +97,13 @@ void mergeSort(int* arr, int l, int r) {
         int tid1 = uthread_merge(arr, l, m);
         int tid2 = uthread_merge(arr,m+1,r);
 
-        void** ptr;
+        void* ptr;
         printf("joining %d\n", tid1);
-        uthread_join(tid1, ptr);
-        uthread_join(tid2, ptr);
+        uthread_join(tid1, &ptr);
+        uthread_join(tid2, &ptr);
 
         merge(arr, l, m, r);
     }
-    printf("done w/ mergesort\n");
 }
 
 
@@ -123,7 +119,7 @@ void printArray(int A[], int size) {
 
 /* Driver program to test above functions */
 int main() {
-    int arr[5];
+    int arr[500];
     int arr_size = sizeof(arr)/sizeof(arr[0]);
 
     printf("Given array is \n");
