@@ -323,10 +323,10 @@ void thread_switch() {
 
     int ret_val = sigsetjmp(threads[current_thread_id].env, 1);
     if (ret_val == 1) {
-	    // Reset the quantum
-        setitimer(ITIMER_VIRTUAL, &timer, nullptr);
-        enable_interrupts();
-        return;
+	// Reset the quantum
+	setitimer(ITIMER_VIRTUAL, &timer, nullptr);
+	enable_interrupts();
+	return;
     }
 
     // Place calling thread on waiting list
