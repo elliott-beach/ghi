@@ -11,7 +11,7 @@
 
 #include "uthread.h"
 
-#define STACK_SIZE 4096
+#define STACK_SIZE 10000
 
 /**
  * Global thread state.
@@ -34,6 +34,7 @@ int num_threads = 0;
 std::deque<int> ready_list;
 std::deque<int> waiting_list;
 std::deque<int> suspended_list;
+std::deque<char*> garbage;
 
 /**
  * TID of the current executing thread.
@@ -61,6 +62,29 @@ bool valid_tid(int tid) {
 }
 
 /**
+ * Remove an id from a queue of items.
+ * @param items - The queue of items.
+ * @param id - The id to remove.
+ * @return true if the item was removed, else false
+ */
+bool remove(std::deque<int> &items, int num) {
+    std::deque<int>::iterator it;
+    if ((it = find(items.begin(), items.end(), num)) != items.end()) {
+        items.erase(it);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Add an id to a queue, removing it if it already exists.
+ */
+void add_unique(std::deque<int> &items, int num){
+    remove(items, num);
+    items.push_back(num);
+}
+
+/**
  * Removes all the threads that were waiting on thread tid from
  * the waiting list.
  * @param tid - the tid that threads no longre have to wait for
@@ -75,7 +99,7 @@ void free_waiting_threads(int tid) {
         if (threads[id].waiting_for_tid == tid) {
             threads[id].waiting_for_tid = -1;
             waiting_list.erase(it);
-            ready_list.push_back(id);
+            add_unique(ready_list, id);
         }
         ++it;
     }
@@ -90,24 +114,20 @@ void free_waiting_threads(int tid) {
 void set_complete(int tid){
     TCB &tcb = threads[tid];
     tcb.complete = true;
-    free(tcb.stack);
+
+    // Remove garbage.
+    while(!garbage.empty()){
+        free(garbage.front());
+        garbage.pop_front();
+    }
+
+    // Add stack to garbage.
+    garbage.push_back(tcb.stack);
+
     free_waiting_threads(tid);
 }
 
-/**
- * Remove an id from a queue of items.
- * @param items - The queue of items.
- * @param id - The id to remove.
- * @return true if the item was removec, else false.
- */
-bool remove(std::deque<int> &items, int num) {
-    std::deque<int>::iterator it;
-    if ((it = find(items.begin(), items.end(), num)) != items.end()) {
-        items.erase(it);
-        return true;
-    }
-    return false;
-}
+
 
 
 /* A translation is required when using an address of a variable.
@@ -171,7 +191,7 @@ void disable_interrupts() {
 void enable_interrupts() {
     sigset_t blockmask;
     if ((sigemptyset(&blockmask) == -1) || (sigaddset(&blockmask, SIGVTALRM) == -1)) {
-        perror("Failed to intialize signal set");
+        perror("Failed to initialize signal set");
         exit(1);
     }
 
@@ -186,7 +206,7 @@ void enable_interrupts() {
  * Completes a thread's execution. adds to the ready list.
  */
 void thread_complete() {
-    printf("setting thread complete\n");
+    printf("setting thread complete %d\n", current_thread_id);
 
     disable_interrupts();
 
@@ -197,23 +217,24 @@ void thread_complete() {
     }
 
     set_complete(current_thread_id);
-    printf("set complete\n");
 
     // If all threads have complete execution
     if (ready_list.empty()) {
         enable_interrupts();
         finish();
     }
-
-    printf("now here\n");
+    
+    int old_id = current_thread_id;
 
     // Choose the first thread on the ready list
-    current_thread_id = ready_list.front();
-    ready_list.pop_front();
+    do{
+        current_thread_id = ready_list.front();
+        ready_list.pop_front();
+    }while(threads[current_thread_id].complete);
 
     enable_interrupts();
-
-    printf("jumping %d\n", current_thread_id);
+    
+    printf("jumping to %d from %d\n", current_thread_id, old_id);
 
     siglongjmp(threads[current_thread_id].env, 1);
 }
@@ -236,7 +257,7 @@ void thread_switch() {
     }
 
     // Place calling thread on waiting list
-    waiting_list.push_back(current_thread_id);
+    add_unique(waiting_list, current_thread_id);
 
     // Deadlock
     if (ready_list.empty()) {
@@ -304,7 +325,7 @@ int uthread_create(void *(start_routine)(void *), void *arg) {
     sigemptyset(&tcb->env->__saved_mask);
 
     // Add thread to ready list
-    ready_list.push_back(tid);
+    add_unique(ready_list, tid);
 
     // We now have one more thread!
     num_threads++;
@@ -326,7 +347,7 @@ void uthread_yield() {
     }
 
     // Choose the next thread to execute.
-    ready_list.push_back(current_thread_id);
+    add_unique(ready_list, current_thread_id);
 
     current_thread_id = ready_list.front();
     ready_list.pop_front();
@@ -358,32 +379,6 @@ int uthread_join(int tid, void **retval) {
 }
 
 /**
- * Attmpt to read nbytes bytes from file for file descriptor fildes, into the buffer pointed to by buff.
- * @param fildes The file descriptor to read from.
- * @param buf The buffer to read into.
- * @param nbytes Number of bytes to read.
- */
-ssize_t async_read(int fildes, void *buf, size_t nbytes) {
-    struct aiocb params{};
-    params.aio_fildes = fildes;
-    params.aio_buf = buf;
-    params.aio_nbytes = nbytes;
-    if (aio_read(&params) != 0) return -1;
-    while (true) {
-        switch (aio_error(&params)) {
-            case EINPROGRESS:
-                uthread_yield();
-                continue;
-            case ECANCELED:
-                errno = ECANCELED;
-                return -1;
-            default:
-                return aio_return(&params);
-        }
-    }
-}
-
-/**
  * Resume a suspended thread. Returns -1 on if tid is invalid or tid was not suspended
  * @param tid - The tid needed to be resumed
  */
@@ -394,9 +389,9 @@ int uthread_resume(int tid) {
     // Verify that tid is currently suspended
     if (remove(suspended_list, tid)) {
         if (threads[tid].waiting_for_tid == -1){
-            ready_list.push_back(tid);
+            add_unique(ready_list, tid);
         } else {
-            waiting_list.push_back(tid);
+            add_unique(waiting_list, tid);
         }
         enable_interrupts();
         return 0;
@@ -425,16 +420,16 @@ int uthread_suspend(int tid) {
 
     // If a thread tries to suspend itself
     if (tid == current_thread_id) {
-        suspended_list.push_back(current_thread_id);
+        add_unique(suspended_list, current_thread_id);
         thread_switch();
         return 0;
     }
 
     // Check if the tid trying to be suspended is in the ready list or the waiting list.
     if(remove(ready_list, tid)){
-        suspended_list.push_back(tid);
+        add_unique(suspended_list, tid);
     } else if(remove(waiting_list, tid)){
-        suspended_list.push_back(tid);
+        add_unique(suspended_list, tid);
     } else {
         // tid is already suspended
         enable_interrupts();

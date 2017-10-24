@@ -3,7 +3,7 @@
 
 typedef void *(*thread_func)(void *);
 
-#define MAX_THREADS 1000
+#define MAX_THREADS 5000
 
 struct TCB {
     sigjmp_buf env;
